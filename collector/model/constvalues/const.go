@@ -1,7 +1,6 @@
 package constvalues
 
 const (
-	RequestCount        = "request_count"
 	RequestTotalTime    = "request_total_time"
 	ConnectTime         = "connect_time"
 	RequestSentTime     = "request_sent_time"
