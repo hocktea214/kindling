@@ -96,10 +96,6 @@ const (
 	SpanMysqlErrorCode = "mysql.error_code"
 	SpanMysqlErrorMsg  = "mysql.error_msg"
 
-	SpanDubboErrorCode    = "dubbo.error_code"
-	SpanDubboRequestBody  = "dubbo.request_body"
-	SpanDubboResponseBody = "dubbo.response_body"
-
 	NetWorkAnalyzeGaugeGroup = "netAnalyzeGauges"
 )
 const (
