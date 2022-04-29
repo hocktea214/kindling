@@ -43,7 +43,7 @@ func TestLabelSelectors_GetLabelKeys(t *testing.T) {
 
 func TestLabelKeys_GetLabels(t *testing.T) {
 	type fields struct {
-		keys [maxLabelKeySize]LabelKey
+		keys [34]LabelKey
 	}
 	tests := []struct {
 		name   string

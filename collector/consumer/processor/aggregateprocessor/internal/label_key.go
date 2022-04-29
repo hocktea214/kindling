@@ -28,8 +28,7 @@ func NewLabelSelectors(selectors ...LabelSelector) *LabelSelectors {
 
 func (s *LabelSelectors) GetLabelKeys(labels *model.AttributeMap) *LabelKeys {
 	keys := &LabelKeys{}
-	for i := 0; i < maxLabelKeySize && i < len(s.selectors); i++ {
-		selector := s.selectors[i]
+	for i, selector := range s.selectors {
 		keys.keys[i].Name = selector.Name
 		keys.keys[i].VType = selector.VType
 		switch selector.VType {
@@ -44,7 +43,7 @@ func (s *LabelSelectors) GetLabelKeys(labels *model.AttributeMap) *LabelKeys {
 	return keys
 }
 
-const maxLabelKeySize = 35
+const maxLabelKeySize = 34
 
 type LabelKeys struct {
 	// LabelKeys will be used as key of map, so it is must be an array instead of a slice.
