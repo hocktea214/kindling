@@ -12,8 +12,8 @@ import (
 //      GaugeGroup
 
 type DefaultAggregator struct {
-	recordersMap sync.Map
-	// mut is only used to make sure Dump the recorder is thread-safe.
+	recordersMap map[string]*valueRecorder
+	// mut is only used to make sure the access to the recordersMap is thread-safe.
 	// valueRecorder is responsible for its own thread-safe access.
 	mut    sync.RWMutex
 	config *AggregatedConfig
@@ -21,7 +21,7 @@ type DefaultAggregator struct {
 
 func NewDefaultAggregator(config *AggregatedConfig) *DefaultAggregator {
 	ret := &DefaultAggregator{
-		recordersMap: sync.Map{},
+		recordersMap: make(map[string]*valueRecorder),
 		config:       config,
 	}
 	return ret
@@ -30,28 +30,35 @@ func NewDefaultAggregator(config *AggregatedConfig) *DefaultAggregator {
 func (s *DefaultAggregator) Aggregate(g *model.GaugeGroup, selectors *internal.LabelSelectors) {
 	name := g.Name
 	s.mut.RLock()
-	defer s.mut.RUnlock()
-	recorder, ok := s.recordersMap.Load(name)
+	recorder, ok := s.recordersMap[name]
+	s.mut.RUnlock()
 	// Won't enter this branch too many times, as the recordersMap
 	// will become stable after running a period of time.
 	if !ok {
+		s.mut.Lock()
 		// double check to avoid double writing
-		recorder, _ = s.recordersMap.LoadOrStore(name, newValueRecorder(name, s.config.KindMap))
+		recorder, ok = s.recordersMap[name]
+		if !ok {
+			recorder = newValueRecorder(name, s.config.KindMap)
+			s.recordersMap[name] = recorder
+		}
+		s.mut.Unlock()
 	}
 	key := selectors.GetLabelKeys(g.Labels)
-	recorder.(*valueRecorder).Record(key, g.Values, g.Timestamp)
+	recorder.Record(key, g.Values, g.Timestamp)
+
+	// First copy the model.GaugeGroup, then output the result directly.
+	// Or first use intermediate struct, then generate the model.GaugeGroup.
 }
 
 func (s *DefaultAggregator) Dump() []*model.GaugeGroup {
 	ret := make([]*model.GaugeGroup, 0)
-	s.mut.Lock()
-	defer s.mut.Unlock()
-	s.recordersMap.Range(func(_, value interface{}) bool {
-		recorder := value.(*valueRecorder)
-		ret = append(ret, recorder.dump()...)
+	s.mut.RLock()
+	for _, v := range s.recordersMap {
+		ret = append(ret, v.dump()...)
 		// Assume that the recordersMap will become stable after running a period of time.
-		recorder.reset()
-		return true
-	})
+		v.reset()
+	}
+	s.mut.RUnlock()
 	return ret
 }

@@ -7,16 +7,19 @@ import (
 )
 
 type valueRecorder struct {
-	name string
+	name        string
+	labelValues map[internal.LabelKeys]aggValuesMap
+	// mutex is only used to make sure the access to the labelValues is thread-safe.
 	// aggValuesMap is responsible for its own thread-safe access.
-	labelValues sync.Map
-	aggKindMap  map[string][]KindConfig
+	mutex      sync.RWMutex
+	aggKindMap map[string][]KindConfig
 }
 
 func newValueRecorder(recorderName string, aggKindMap map[string][]KindConfig) *valueRecorder {
 	return &valueRecorder{
 		name:        recorderName,
-		labelValues: sync.Map{},
+		labelValues: make(map[internal.LabelKeys]aggValuesMap),
+		mutex:       sync.RWMutex{},
 		aggKindMap:  aggKindMap,
 	}
 }
@@ -26,32 +29,41 @@ func (r *valueRecorder) Record(key *internal.LabelKeys, gaugeValues []*model.Gau
 	if key == nil {
 		return
 	}
-	aggValues, ok := r.labelValues.Load(*key)
+	r.mutex.RLock()
+	aggValues, ok := r.labelValues[*key]
+	r.mutex.RUnlock()
 	if !ok {
+		r.mutex.Lock()
 		// double check to avoid double writing
-		aggValues, _ = r.labelValues.LoadOrStore(*key, newAggValuesMap(gaugeValues, r.aggKindMap))
+		aggValues, ok = r.labelValues[*key]
+		if !ok {
+			aggValues = newAggValuesMap(gaugeValues, r.aggKindMap)
+			r.labelValues[*key] = aggValues
+		}
+		r.mutex.Unlock()
 	}
 	for _, gauge := range gaugeValues {
-		aggValues.(aggValuesMap).calculate(gauge.Name, gauge.Value, timestamp)
+		aggValues.calculate(gauge.Name, gauge.Value, timestamp)
 	}
 }
 
 // dump a set of metric from counter cache.
 // The return value holds the reference to the metric, not the copied one.
 func (r *valueRecorder) dump() []*model.GaugeGroup {
-	ret := make([]*model.GaugeGroup, 0)
-	r.labelValues.Range(func(key, value interface{}) bool {
-		k := key.(internal.LabelKeys)
-		v := value.(aggValuesMap)
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	ret := make([]*model.GaugeGroup, len(r.labelValues))
+	index := 0
+	for k, v := range r.labelValues {
 		gaugeGroup := model.NewGaugeGroup(r.name, k.GetLabels(), v.getTimestamp(), v.getAll()...)
-		ret = append(ret, gaugeGroup)
-		return true
-	})
+		ret[index] = gaugeGroup
+		index++
+	}
 	return ret
 }
 
-// reset the labelValues for further aggregation.
-// This method is not thread safe.
 func (r *valueRecorder) reset() {
-	r.labelValues = sync.Map{}
+	r.mutex.Lock()
+	r.labelValues = make(map[internal.LabelKeys]aggValuesMap)
+	r.mutex.Unlock()
 }
