@@ -19,7 +19,6 @@ func TestHttpProtocol(t *testing.T) {
 	testProtocol(t, "http/server-event.yml",
 		"http/server-trace-slow.yml",
 		"http/server-trace-error.yml",
-		"http/server-trace-split.yml",
 		"http/server-trace-normal.yml")
 }
 
