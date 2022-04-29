@@ -1,4 +1,4 @@
-package aggregator
+package internal
 
 import (
 	"github.com/Kindling-project/kindling/collector/model"

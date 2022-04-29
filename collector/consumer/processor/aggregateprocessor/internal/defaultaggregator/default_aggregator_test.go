@@ -1,8 +1,8 @@
 package defaultaggregator
 
 import (
+	"github.com/Kindling-project/kindling/collector/consumer/processor/aggregateprocessor/internal"
 	"github.com/Kindling-project/kindling/collector/model"
-	"github.com/Kindling-project/kindling/collector/pkg/aggregator"
 	"sync"
 	"testing"
 	"time"
@@ -16,12 +16,12 @@ func TestConcurrentAggregator(t *testing.T) {
 		},
 	}}
 
-	aggregatorInstance := NewDefaultAggregator(aggKindMap)
+	aggregator := NewDefaultAggregator(aggKindMap)
 	labels := model.NewAttributeMap()
 	labels.AddStringValue("key", "value")
 
-	labelSelectors := aggregator.NewLabelSelectors(
-		aggregator.LabelSelector{Name: "key", VType: aggregator.StringType},
+	labelSelectors := internal.NewLabelSelectors(
+		internal.LabelSelector{Name: "key", VType: internal.StringType},
 	)
 
 	wg := sync.WaitGroup{}
@@ -36,7 +36,7 @@ func TestConcurrentAggregator(t *testing.T) {
 				{"duration", duration},
 			}
 			gaugeGroup := model.NewGaugeGroup("testGauge", labels, 0, gaugeValues...)
-			aggregatorInstance.Aggregate(gaugeGroup, labelSelectors)
+			aggregator.Aggregate(gaugeGroup, labelSelectors)
 			time.Sleep(time.Microsecond)
 		}
 		stopCh <- true
@@ -51,7 +51,7 @@ func TestConcurrentAggregator(t *testing.T) {
 		for {
 			select {
 			case <-ticker.C:
-				ret := aggregatorInstance.Dump()
+				ret := aggregator.Dump()
 				for _, g := range ret {
 					for _, v := range g.Values {
 						if v.Name == "duration_sum" {
@@ -62,7 +62,7 @@ func TestConcurrentAggregator(t *testing.T) {
 					}
 				}
 			case <-stopCh:
-				ret := aggregatorInstance.Dump()
+				ret := aggregator.Dump()
 				for _, g := range ret {
 					for _, v := range g.Values {
 						if v.Name == "duration_sum" {
