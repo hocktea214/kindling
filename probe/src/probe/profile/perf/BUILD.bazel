@@ -1,0 +1,13 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//src:__subpackages__"])
+
+cc_library(
+    name = "cc_library",
+    srcs = glob(["*.h", "*.c"]),
+    copts = ["-Ibazel-out/k8-fastbuild/bin/third_party/perf_build/include", "-Wno-unused-parameter","-Wno-unused-variable"],
+    hdrs = glob(["*.h"]),
+    deps = [
+	    "//third_party:perf_build",
+    ],
+)

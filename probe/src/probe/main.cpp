@@ -8,6 +8,7 @@
 #include "src/probe/converter/sysdig_converter.h"
 #include "src/probe/publisher/publisher.h"
 #include "src/probe/converter/kindling_event.pb.h"
+#include "src/probe/profile/profiler.h"
 #include "driver/driver_config.h"
 #include "src/common/base/base.h"
 #include "src/probe/catch_sig.h"
@@ -96,6 +97,10 @@ void get_capture_statistics(sinsp* inspector) {
 	}
 }
 
+void start_profiler(Profiler *prof) {
+    prof->Start();
+}
+
 int main(int argc, char** argv) {
     px::EnvironmentGuard env_guard(&argc, argv);
 
@@ -160,6 +165,10 @@ int main(int argc, char** argv) {
 
         TerminationHandler::set_sinsp(inspector);
         thread inspect(do_inspect, inspector, &formatter, pid, pub);
+
+        Profiler *prof = new Profiler(5000);
+        thread profile(start_profiler, prof);
+
         pub->start();
 
         inspector->close();

@@ -38,6 +38,7 @@ pl_cc_binary(
         #"@px//src/stirling:cc_library",
         "//third_party:agent-libs_build",
 	    "//third_party:zmq_build",
+        "//src/probe/profile:cc_library",
     ],
 )
 

@@ -27,6 +27,21 @@ http_archive(
         build_file_content = BUILD_ALL_CONTENT,
     )
 
+http_archive(
+        name = "lib_perf",
+        urls = ["https://github.com/hocktea214/libperf/archive/refs/tags/v1.0.0.tar.gz"],
+        sha256 = "ed38b724e8986b114f0b3214d552c9e2608ff262eedfe6858a98aebec952abae",
+        strip_prefix = "libperf-1.0.0",
+        build_file_content = BUILD_ALL_CONTENT,
+    )
+
+http_archive(
+        name = "lib_bcc",
+        urls = ["https://github.com/hocktea214/bcc/archive/refs/tags/v0.24.0-libbcc.tar.gz"],
+        sha256 = "d8a87a4cee5332eacdfdf40428b0f1f8b0236e600dbce56d917b311076c5e905",
+        strip_prefix = "bcc-0.24.0-libbcc",
+        build_file_content = BUILD_ALL_CONTENT,
+    )
 
 new_local_repository(
         name = "libzmq",

@@ -67,5 +67,34 @@ cmake(
     out_static_libs = ["libsinsp.a", "libscap.a", "libtbb.a", "libtbbmalloc.a"],
 )
 
+make(
+    name = "perf_build",
+    lib_source = "@lib_perf//:all",
+    postfix_script = "cp ./tools/lib/perf/libperf.a $INSTALLDIR/lib/libperf.a \
+    && cp ./tools/lib/api/libapi.a $INSTALLDIR/lib/libapi.a \
+    && mkdir $INSTALLDIR/include/perf \
+    && cp ./tools/lib/perf/include/perf/*.h $INSTALLDIR/include/perf \
+    && mkdir $INSTALLDIR/include/linux \
+    && cp ./tools/include/uapi/linux/perf_event.h $INSTALLDIR/include/linux \
+     ",
+    out_static_libs = ["libperf.a", "libapi.a"],
+    visibility = ["//visibility:public"],
+)
 
-
+cmake(
+    name = "bcc_build",
+    lib_source = "@lib_bcc//:all",
+    linkopts = [
+        # ELF binary parsing.
+        "-lelf",
+    ],
+    postfix_script = "make \
+    && cp ./src/cc/libbcc.a $INSTALLDIR/lib/libbcc.a \
+    && mkdir $INSTALLDIR/include/bcc \
+    && cp $EXT_BUILD_ROOT/external/lib_bcc/src/cc/bcc_syms.h $INSTALLDIR/include/bcc \
+    && cp $EXT_BUILD_ROOT/external/lib_bcc/src/cc/bcc_proc.h $INSTALLDIR/include/bcc \
+    && cp $EXT_BUILD_ROOT/external/lib_bcc/src/cc/bcc_elf.h $INSTALLDIR/include/bcc \
+    ",
+    out_static_libs = ["libbcc.a"],
+    visibility = ["//visibility:public"],
+)
