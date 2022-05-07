@@ -8,13 +8,15 @@ typedef void(*callback) (void*, void*);
 template <typename Data>
 class RingBuffer {
     private:
-        int m_size;
         int m_from;
         int m_next;
         int m_count;
         Data* m_data;
     public:
-        RingBuffer(int size):m_size(size),m_from(0),m_next(0),m_count(0) {
+        int m_size;
+
+        RingBuffer(int size):m_from(0),m_next(0),m_count(0) {
+            m_size = size;
             m_data = new Data[size];
         }
         ~RingBuffer() {
@@ -91,6 +93,13 @@ class Bucket {
         int getTo() {
             return m_to;
         }
+
+        int size() {
+            if (m_from <= m_to) {
+                return m_to - m_from + 1;
+            }
+            return m_to + m_ring->m_size - m_from;
+        }
 };
 
 template <typename Data>
@@ -165,7 +174,7 @@ class RingBuffers {
             int size = 0;
             for (auto it = m_buckets.begin(); it != m_buckets.end();it++) {
                 Bucket<Data> *bucket = *it;
-                size += bucket->getTo() - bucket->getFrom() + 1;
+                size += bucket->size();
             }
             return size;
         }

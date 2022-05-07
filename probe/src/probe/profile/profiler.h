@@ -12,11 +12,11 @@ public:
     ~Profiler();
     void Start();
     void Stop();
-    std::string GetOnCpuData(__u32 tid, std::vector<std::pair<__u64, __u64>> periods);
+    void EnableFlameFile(bool file);
+    std::string GetOnCpuData(__u32 tid, std::vector<std::pair<uint64_t, uint64_t>> &periods);
 
 private:
-    struct perfData *perf_data;
-    void* flame_graph;
+    struct perfData *perf_data_;
 };
 
 #endif //KINDLING_PROBE_PROFILE_PROFILER_

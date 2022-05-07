@@ -9,46 +9,53 @@
 
 using namespace std;
 
-void do_profile(void* object, __u64 timestamp, struct sample_type_data *sample_data) {
+struct ProfileCtx {
+    FlameGraph *flame_graph;
+} profile_ctx;
+
+void do_profile(__u64 timestamp, struct sample_type_data *sample_data) {
     if (sample_data->tid_entry.pid == 0) {
         return;
     }
-    FlameGraph *flame_graph = (FlameGraph*)object;
-    flame_graph->RecordSampleData(timestamp, sample_data);
+    profile_ctx.flame_graph->RecordSampleData(timestamp, sample_data);
 }
 
-void do_collect(void* object, __u64 timestamp) {
+void do_collect(__u64 timestamp) {
     char str[50];
     time_t now = time(NULL);
     strftime(str, 50, "%x %X", localtime(&now));
     cout << "===== " << str << " =====" << endl;
     
-    FlameGraph *flame_graph = (FlameGraph*)object;
-    flame_graph->CollectData(timestamp);
+    profile_ctx.flame_graph->CollectData(timestamp);
 }
 
 Profiler::Profiler(int cache_keep_time) {
-    perf_data = (struct perfData *)malloc(sizeof(struct perfData) * 1);
-    perf_data->running = 0;
-    perf_data->sampleMs = 10;
-    perf_data->sample = do_profile;
-    perf_data->collectMs = 1000;
-    perf_data->collect = do_collect;
-    flame_graph = new FlameGraph(cache_keep_time);
+    profile_ctx.flame_graph = new FlameGraph(cache_keep_time);
+
+    perf_data_ = (struct perfData *)malloc(sizeof(struct perfData) * 1);
+    perf_data_->running = 0;
+    perf_data_->sampleMs = 10;
+    perf_data_->sample = do_profile;
+    perf_data_->collectMs = 1000;
+    perf_data_->collect = do_collect;
 }
 
 Profiler::~Profiler() {
-    delete perf_data;
+    delete perf_data_;
 }
 
 void Profiler::Start() {
-    perf(flame_graph, perf_data);
+    perf(perf_data_);
 }
 
 void Profiler::Stop() {
-    perf_data->running = 0;
+    perf_data_->running = 0;
 }
 
-string Profiler::GetOnCpuData(__u32 tid, vector<pair<__u64, __u64>> periods) {
-    return ((FlameGraph*) flame_graph)->GetOnCpuData(tid, periods);
+void Profiler::EnableFlameFile(bool file) {
+    profile_ctx.flame_graph->EnableFlameFile(file);
+}
+
+string Profiler::GetOnCpuData(__u32 tid, vector<pair<uint64_t, uint64_t>> &periods) {
+    return profile_ctx.flame_graph->GetOnCpuData(tid, periods);
 }

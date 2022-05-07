@@ -27,7 +27,7 @@ static uint64_t time_ms(void)
     return tv.tv_sec * 1000LL + tv.tv_usec / 1000;
 }
 
-int perf(void* object, struct perfData *data) {
+int perf(struct perfData *data) {
     if (data->running) {
         fprintf(stdout, "Perf has already started, skip it...\n");
         return 0;
@@ -42,8 +42,7 @@ int perf(void* object, struct perfData *data) {
 		.type           = PERF_TYPE_SOFTWARE,
 		.config         = PERF_COUNT_SW_CPU_CLOCK,
         .sample_period  = data->sampleMs*1000000,
-		.sample_type    = PERF_SAMPLE_TID|PERF_SAMPLE_CPU|PERF_SAMPLE_READ|PERF_SAMPLE_CALLCHAIN,
-        .read_format    = 0,
+		.sample_type    = PERF_SAMPLE_TID|PERF_SAMPLE_CALLCHAIN,
         .disabled       = 1,
         .wakeup_events  = 1,
         .exclude_kernel = 0,
@@ -106,9 +105,9 @@ int perf(void* object, struct perfData *data) {
                 if (perf_mmap__read_init(map) < 0)
 			        continue;
                 while ((event = perf_mmap__read_event(map)) != NULL) {
-                    if (data->sample) {
+                    if (event->header.type == PERF_RECORD_SAMPLE && data->sample) {
                         struct sample_type_data *sample_data = (void *)event->sample.array;
-                        data->sample(object, current_time, sample_data);
+                        data->sample(current_time, sample_data);
                     }
                     perf_mmap__consume(map);
                 }
@@ -116,7 +115,7 @@ int perf(void* object, struct perfData *data) {
             }
         }
         if (time_left == 0) {
-            data->collect(object, current_time);
+            data->collect(current_time);
         }            
 
         time_left = time_end - time_ms();
