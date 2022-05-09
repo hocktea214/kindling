@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <ctime>
 
 using namespace std;
 
@@ -17,6 +18,8 @@ void do_profile(__u64 timestamp, struct sample_type_data *sample_data) {
     if (sample_data->tid_entry.pid == 0) {
         return;
     }
+    fprintf(stdout, "Collect Time0: %lld, Time2: %lld\n", timestamp, sample_data->time);
+
     profile_ctx.flame_graph->RecordSampleData(timestamp, sample_data);
 }
 

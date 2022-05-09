@@ -42,7 +42,7 @@ int perf(struct perfData *data) {
 		.type           = PERF_TYPE_SOFTWARE,
 		.config         = PERF_COUNT_SW_CPU_CLOCK,
         .sample_period  = data->sampleMs*1000000,
-		.sample_type    = PERF_SAMPLE_TID|PERF_SAMPLE_CALLCHAIN,
+		.sample_type    = PERF_SAMPLE_TID|PERF_SAMPLE_TIME|PERF_SAMPLE_CALLCHAIN,
         .disabled       = 1,
         .wakeup_events  = 1,
         .exclude_kernel = 0,

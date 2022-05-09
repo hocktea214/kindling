@@ -20,6 +20,7 @@ SampleData::SampleData() {}
 SampleData::SampleData(struct sample_type_data *sample_data) {
     pid_ = sample_data->tid_entry.pid;
     tid_ = sample_data->tid_entry.tid;
+    time_ = sample_data->time;
     nr_ = sample_data->callchain.nr;
     memcpy(&ips_[0], sample_data->callchain.ips, nr_ * sizeof(sample_data->callchain.ips[0]));
 }

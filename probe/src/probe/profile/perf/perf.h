@@ -8,7 +8,8 @@ struct sample_type_data {
     struct {
         __u32    pid;
         __u32    tid;
-    }    tid_entry;
+    } tid_entry;
+    __u64   time;
     struct {
         __u64   nr;
         __u64   ips[0];
