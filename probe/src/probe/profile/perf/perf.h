@@ -21,8 +21,8 @@ struct perfData {
     int sampleMs;
     int collectMs;
 
-    void (*sample)(__u64 timestamp, struct sample_type_data *sample_data);
-    void (*collect)(__u64 timestamp);
+    void (*sample)(struct sample_type_data *sample_data);
+    void (*collect)();
 };
 
 int perf(struct perfData *data);

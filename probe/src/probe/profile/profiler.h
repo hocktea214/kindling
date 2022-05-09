@@ -8,7 +8,7 @@ extern "C" {
 
 class Profiler {
 public:
-    Profiler(int cache_keep_time);
+    Profiler(int cache_keep_time, int perf_period_ms);
     ~Profiler();
     void Start();
     void Stop();

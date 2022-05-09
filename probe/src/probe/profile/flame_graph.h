@@ -43,17 +43,18 @@ class AggregateData {
 
 class FlameGraph {
  public:
-  FlameGraph(int cache_keep_time);
+  FlameGraph(int cache_keep_time, int perf_period);
   ~FlameGraph();
   void EnableFlameFile(bool file);
-  void RecordSampleData(__u64 timestamp, struct sample_type_data *sample_data);
-  void CollectData(__u64 timestamp);
+  void RecordSampleData(struct sample_type_data *sample_data);
+  void CollectData();
   string GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &periods);
 
  private:
   void resetLogFile();
 
   bool write_flame_graph_;
+  __u64 last_sample_time_;
   __u64 last_collect_time_;
   RingBuffers<SampleData> *sample_datas_;
   FILE *collect_file_;

@@ -48,7 +48,7 @@ int perf(struct perfData *data) {
         .exclude_kernel = 0,
         .exclude_user   = 0,
 	};
-    uint64_t time_end, current_time;
+    uint64_t time_end;
     int time_left;
     int err = -1;
     union perf_event *event;
@@ -99,7 +99,6 @@ int perf(struct perfData *data) {
         int fds;
 
         fds = perf_evlist__poll(evlist, time_left);
-        current_time = time_ms();
         if (fds) {
             perf_evlist__for_each_mmap(evlist, map, false) {
                 if (perf_mmap__read_init(map) < 0)
@@ -107,7 +106,7 @@ int perf(struct perfData *data) {
                 while ((event = perf_mmap__read_event(map)) != NULL) {
                     if (event->header.type == PERF_RECORD_SAMPLE && data->sample) {
                         struct sample_type_data *sample_data = (void *)event->sample.array;
-                        data->sample(current_time, sample_data);
+                        data->sample(sample_data);
                     }
                     perf_mmap__consume(map);
                 }
@@ -115,7 +114,7 @@ int perf(struct perfData *data) {
             }
         }
         if (time_left == 0) {
-            data->collect(current_time);
+            data->collect();
         }            
 
         time_left = time_end - time_ms();

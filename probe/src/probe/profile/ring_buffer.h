@@ -98,7 +98,7 @@ class Bucket {
             if (m_from <= m_to) {
                 return m_to - m_from + 1;
             }
-            return m_to + m_ring->m_size - m_from;
+            return m_to + m_ring->m_size - m_from + 1;
         }
 };
 
