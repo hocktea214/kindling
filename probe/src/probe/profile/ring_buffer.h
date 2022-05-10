@@ -40,7 +40,11 @@ class RingBuffer {
 
         void reset(int from, int to) {
             m_from = (to + 1) % m_size;
-            m_count -= (to - from + 1);
+            if (to >= from) {
+                m_count -= (to - from + 1);
+            } else {
+                m_count -= (to + m_size - from + 1);
+            }
         }
 
         void onData(void* obj, callback callFn, int from, int to) {
