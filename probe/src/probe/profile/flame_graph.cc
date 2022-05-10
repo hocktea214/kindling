@@ -6,28 +6,31 @@
 #include <string.h>
 
 struct FlameGraphCtx{
-    string seperator_stack_;
-    string seperator_count_;
-    string seperator_next_;
+    string seperator_stack_ = "#";
+    string seperator_count_ = "@";
+    string seperator_next_ = "|";
 
     int perf_period_ns_ = 10000000; // Default 10ms
-    int cache_keep_time_;
-    int max_depth_;
+    int max_depth_ = 1;
+    bool auto_get_ = false;
     BPFSymbolTable *symbol_table_ = new BPFSymbolTable();;
 } flame_graph_ctx;
 
-SampleData::SampleData() {}
+static void setSampleData(void* object, void* value) {
+    SampleData* sampleData = (SampleData*) object;
+    sample_type_data *sample_data = (sample_type_data*)value;
 
-SampleData::SampleData(struct sample_type_data *sample_data) {
-    pid_ = sample_data->tid_entry.pid;
-    tid_ = sample_data->tid_entry.tid;
-    time_ = sample_data->time;
-    nr_ = sample_data->callchain.nr;
-    memcpy(&ips_[0], sample_data->callchain.ips, nr_ * sizeof(sample_data->callchain.ips[0]));
+    sampleData->pid_ = sample_data->tid_entry.pid;
+    sampleData->tid_ = sample_data->tid_entry.tid;
+    sampleData->time_ = sample_data->time;
+    sampleData->nr_ = sample_data->callchain.nr;
+    memcpy(&sampleData->ips_[0], sample_data->callchain.ips, sampleData->nr_ * sizeof(sample_data->callchain.ips[0]));
 }
 
+SampleData::SampleData() {}
+
 string SampleData::addThreadInfo(string call_stack) {
-    if (flame_graph_ctx.cache_keep_time_ == 0) {
+    if (flame_graph_ctx.auto_get_) {
         call_stack.insert(0, flame_graph_ctx.seperator_stack_);
         call_stack.insert(0, std::to_string(tid_));
         call_stack.insert(0, flame_graph_ctx.seperator_stack_);
@@ -113,32 +116,32 @@ static void aggTidData(void* object, void* value) {
 }
 
 FlameGraph::FlameGraph(int cache_keep_time, int perf_period_ms) {
-    sample_datas_ = new RingBuffers<SampleData>(1000);
+    sample_datas_ = new RingBuffers<SampleData>(20);
     flame_graph_ctx.perf_period_ns_ = perf_period_ms * 1000000;
-    flame_graph_ctx.cache_keep_time_ = cache_keep_time / perf_period_ms;
-    if (cache_keep_time > 0) {
-        flame_graph_ctx.seperator_stack_ = "#";
-        flame_graph_ctx.seperator_count_ = "@";
-        flame_graph_ctx.seperator_next_ = "|";
-        flame_graph_ctx.max_depth_ = 1;
-    } else  {
-        flame_graph_ctx.cache_keep_time_ = 0;
-        flame_graph_ctx.seperator_stack_ = ";";
-        flame_graph_ctx.seperator_count_ = " ";
-        flame_graph_ctx.seperator_next_ = "\n";
-        flame_graph_ctx.max_depth_ = 20;
-    }
+    cache_keep_time_ = cache_keep_time / perf_period_ms;
 }
 
 FlameGraph::~FlameGraph() {
-    delete &sample_datas_;
+    delete sample_datas_;
 }
 
-void FlameGraph::EnableFlameFile(bool file) {
-    write_flame_graph_ = file;
-    if (file) {
-        resetLogFile();
+void FlameGraph::SetMaxDepth(int max_depth) {
+    if (max_depth > 1) {
+        flame_graph_ctx.max_depth_ = max_depth;
     }
+}
+
+void FlameGraph::EnableAutoGet() {
+    flame_graph_ctx.auto_get_ = true;
+}
+
+void FlameGraph::EnableFlameFile() {
+    write_flame_graph_ = true;
+    flame_graph_ctx.seperator_stack_ = ";";
+    flame_graph_ctx.seperator_count_ = " ";
+    flame_graph_ctx.seperator_next_ = "\n";
+
+    resetLogFile();
 }
 
 void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
@@ -146,13 +149,12 @@ void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
         fprintf(stdout, "[Ignore Sample Data] Pid: %d, Tid: %d, Nr: %lld\n",sample_data->tid_entry.pid, sample_data->tid_entry.tid, sample_data->callchain.nr);
         return;
     }
-    SampleData *data = new SampleData(sample_data);
-    last_sample_time_ = data->time_ / flame_graph_ctx.perf_period_ns_;
-    sample_datas_->add(last_sample_time_, *data);
+    last_sample_time_ = sample_data->time / flame_graph_ctx.perf_period_ns_;
+    sample_datas_->add(last_sample_time_, sample_data, setSampleData);
 }
 
 void FlameGraph::CollectData() {
-    if (flame_graph_ctx.cache_keep_time_ == 0) {
+    if (flame_graph_ctx.auto_get_) {
         AggregateData *aggregateData = new AggregateData(0);
         sample_datas_->collect(last_collect_time_, last_sample_time_, aggregateData, aggTidData);
         if (write_flame_graph_) {
@@ -165,7 +167,7 @@ void FlameGraph::CollectData() {
 
     fprintf(stdout, "Before Exipre Size: %d\n", sample_datas_->size());
     // Expire RingBuffer Datas.
-    sample_datas_->expire(last_sample_time_ - flame_graph_ctx.cache_keep_time_);
+    sample_datas_->expire(last_sample_time_ - cache_keep_time_);
     fprintf(stdout, "After Exipre Size: %d\n", sample_datas_->size());
     last_collect_time_ = last_sample_time_;
 }
@@ -179,7 +181,7 @@ string FlameGraph::GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>>
         start_time = periods[i].first / flame_graph_ctx.perf_period_ns_; // ns->ms
         end_time = periods[i].second / flame_graph_ctx.perf_period_ns_; // ns->ms
         if (start_time < end_time) {
-            fprintf(stdout, ">> Collect: %lld -> %lld, Duration: %lld\n", start_time, end_time, end_time-start_time);
+            fprintf(stdout, ">> Collect: %lld -> %lld, Duration: %lld, Exist Data %ld -> %ld\n", start_time, end_time, end_time-start_time, sample_datas_->getFrom(), sample_datas_->getTo());
             sample_datas_->collect(start_time, end_time, aggregateData, aggTidData);
         }
     }

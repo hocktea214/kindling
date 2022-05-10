@@ -12,7 +12,9 @@ public:
     ~Profiler();
     void Start();
     void Stop();
-    void EnableFlameFile(bool file);
+    void EnableAutoGet();
+    void EnableFlameFile();
+    void SetMaxDepth(int max_depth);
     std::string GetOnCpuData(__u32 tid, std::vector<std::pair<uint64_t, uint64_t>> &periods);
 
 private:

@@ -1,6 +1,7 @@
 #include <cmath>
 #include "src/probe/profile/profiler.h"
 #include "src/probe/profile/flame_graph.h"
+#include <cstddef>
 #include <iostream>
 #include <string.h>
 #include <stdio.h>
@@ -41,7 +42,10 @@ Profiler::Profiler(int cache_keep_time, int perf_period_ms) {
 }
 
 Profiler::~Profiler() {
-    delete perf_data_;
+    free(perf_data_);
+
+    delete profile_ctx.flame_graph;
+    profile_ctx.flame_graph = nullptr;
 }
 
 void Profiler::Start() {
@@ -52,8 +56,16 @@ void Profiler::Stop() {
     perf_data_->running = 0;
 }
 
-void Profiler::EnableFlameFile(bool file) {
-    profile_ctx.flame_graph->EnableFlameFile(file);
+void Profiler::EnableAutoGet() {
+    profile_ctx.flame_graph->EnableAutoGet();
+}
+
+void Profiler::EnableFlameFile() {
+    profile_ctx.flame_graph->EnableFlameFile();
+}
+
+void Profiler::SetMaxDepth(int max_depth) {
+    profile_ctx.flame_graph->SetMaxDepth(max_depth);
 }
 
 string Profiler::GetOnCpuData(__u32 tid, vector<pair<uint64_t, uint64_t>> &periods) {

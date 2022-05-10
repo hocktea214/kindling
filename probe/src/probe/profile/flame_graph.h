@@ -18,7 +18,6 @@ using std::string;
 class SampleData {
   public:
     SampleData();
-    SampleData(struct sample_type_data *sample_data);
     string GetString();
 
     __u32 pid_;
@@ -45,7 +44,9 @@ class FlameGraph {
  public:
   FlameGraph(int cache_keep_time, int perf_period);
   ~FlameGraph();
-  void EnableFlameFile(bool file);
+  void EnableAutoGet();
+  void EnableFlameFile();
+  void SetMaxDepth(int max_depth);
   void RecordSampleData(struct sample_type_data *sample_data);
   void CollectData();
   string GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &periods);
@@ -53,6 +54,7 @@ class FlameGraph {
  private:
   void resetLogFile();
 
+  int cache_keep_time_;
   bool write_flame_graph_;
   __u64 last_sample_time_;
   __u64 last_collect_time_;
