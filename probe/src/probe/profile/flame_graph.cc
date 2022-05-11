@@ -5,7 +5,7 @@
 struct FlameGraphCtx{
     string seperator_stack_ = "#";
     string seperator_count_ = "@";
-    string seperator_next_ = "|";
+    string seperator_next_ = "/";
 
     int perf_period_ns_ = 10000000; // Default 10ms
     int max_depth_ = 1;
@@ -74,6 +74,10 @@ AggregateData::AggregateData(__u32 tid) {
     tid_ = tid;
 }
 
+AggregateData::~AggregateData() {
+    agg_count_map_.clear();
+}
+
 void AggregateData::Aggregate(void* data) {
     SampleData *sample_data = (SampleData*)data;
     if (sample_data->pid_ == 0 || (tid_ > 0 && sample_data->tid_ != tid_)) {
@@ -89,9 +93,16 @@ void AggregateData::Aggregate(void* data) {
     }
 }
 
+void AggregateData::Reset() {
+    agg_count_map_.clear();
+}
+
 string AggregateData::ToString() {
+    if (agg_count_map_.empty()) {
+        return "";
+    }
+
     string result = "";
-    
     bool seperator = false;
     map<string, int>::iterator itr;
     for (itr = agg_count_map_.begin(); itr != agg_count_map_.end(); itr++) {
@@ -150,14 +161,14 @@ void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
     sample_datas_->add(last_sample_time_, sample_data, setSampleData);
 }
 
-long getFixTime() {
+void FlameGraph::resetMontonicTimeDiff() {
     struct timespec timestamp = {0, 0};
     clock_gettime(CLOCK_BOOTTIME, &timestamp);
     long bootTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec;
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &timestamp);
     long monotonicTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec;
-    return bootTime - monotonicTime;
+    monotonic_time_diff_ = bootTime - monotonicTime;
 }
 
 void FlameGraph::CollectData() {
@@ -166,13 +177,16 @@ void FlameGraph::CollectData() {
         sample_datas_->collect(last_collect_time_, last_sample_time_, aggregateData, aggTidData);
         if (write_flame_graph_) {
             fprintf(collect_file_, "%s\n", aggregateData->ToString().c_str());  // Write To File.
+            fclose(collect_file_);
             resetLogFile();
         } else {
             aggregateData->ToString();
         }
+    } else {
+        resetMontonicTimeDiff();
     }
 
-    fprintf(stdout, "Before Exipre Size: %d, %ld->%ld\n", sample_datas_->size(), sample_datas_->getFrom(), sample_datas_->getTo());
+    fprintf(stdout, "Before Exipre Size: %d\n", sample_datas_->size());
     // Expire RingBuffer Datas.
     sample_datas_->expire(last_sample_time_ - cache_keep_time_);
     fprintf(stdout, "After Exipre Size: %d\n", sample_datas_->size());
@@ -180,20 +194,23 @@ void FlameGraph::CollectData() {
 }
 
 string FlameGraph::GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &periods) {
+    string result = "";
     AggregateData *aggregateData = new AggregateData(tid);
 
     __u64 start_time = 0, end_time = 0;
     int size = periods.size();
-    long diff = getFixTime();
     for (int i = 0; i < size; i++) {
-        start_time = (periods[i].first - diff) / flame_graph_ctx.perf_period_ns_; // ns->ms
-        end_time = (periods[i].second - diff) / flame_graph_ctx.perf_period_ns_; // ns->ms
-        if (start_time < end_time) {
+        start_time = (periods[i].first - monotonic_time_diff_) / flame_graph_ctx.perf_period_ns_; // ns->ms
+        end_time = (periods[i].second - monotonic_time_diff_) / flame_graph_ctx.perf_period_ns_; // ns->ms
+        if (end_time - start_time >= 2) {
             fprintf(stdout, ">> Collect: %lld -> %lld, Duration: %lld, Exist Data %ld -> %ld\n", start_time, end_time, end_time-start_time, sample_datas_->getFrom(), sample_datas_->getTo());
             sample_datas_->collect(start_time, end_time, aggregateData, aggTidData);
+            result.append(aggregateData->ToString());
+            aggregateData->Reset();
         }
+        result.append("|");
     }
-    return aggregateData->ToString();
+    return result;
 }
 
 void FlameGraph::resetLogFile() {

@@ -189,7 +189,7 @@ class RingBuffers {
         void collect(long from, long to, void* obj, callback callFn) {
             for (auto it = m_buckets.begin(); it != m_buckets.end();it++) {
                 Bucket<Data> *bucket = *it;
-                if (bucket->getTs() >= from && bucket->getTs() <= to) {
+                if (bucket->getTs() > from && bucket->getTs() <= to) {
                     bucket->getRingBuffer()->onData(obj, callFn, bucket->getFrom(), bucket->getTo());
                 }
             }

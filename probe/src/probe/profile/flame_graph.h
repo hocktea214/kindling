@@ -32,7 +32,9 @@ class SampleData {
 class AggregateData {
   public:
     AggregateData(__u32 tid);
+    ~AggregateData();
     void Aggregate(void* data);
+    void Reset();
     string ToString();
 
   private:
@@ -52,9 +54,11 @@ class FlameGraph {
   string GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &periods);
 
  private:
+  void resetMontonicTimeDiff();
   void resetLogFile();
 
   int cache_keep_time_;
+  long monotonic_time_diff_;
   bool write_flame_graph_;
   __u64 last_sample_time_;
   __u64 last_collect_time_;
