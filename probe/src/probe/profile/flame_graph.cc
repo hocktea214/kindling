@@ -7,7 +7,6 @@ struct FlameGraphCtx{
     string seperator_count_ = "@";
     string seperator_next_ = "/";
 
-    int perf_period_ns_ = 10000000; // Default 10ms
     int max_depth_ = 1;
     bool auto_get_ = false;
     BPFSymbolTable *symbol_table_ = new BPFSymbolTable();;
@@ -125,18 +124,13 @@ static void aggTidData(void* object, void* value) {
 
 FlameGraph::FlameGraph(int cache_keep_time, int perf_period_ms) {
     sample_datas_ = new RingBuffers<SampleData>(20);
-    flame_graph_ctx.perf_period_ns_ = perf_period_ms * 1000000;
+    perf_period_ns_ = perf_period_ms * 1000000;
+    perf_threshold_ns_ = perf_period_ns_;
     cache_keep_time_ = cache_keep_time / perf_period_ms;
 }
 
 FlameGraph::~FlameGraph() {
     delete sample_datas_;
-}
-
-void FlameGraph::SetMaxDepth(int max_depth) {
-    if (max_depth > 1) {
-        flame_graph_ctx.max_depth_ = max_depth;
-    }
 }
 
 void FlameGraph::EnableAutoGet() {
@@ -152,12 +146,22 @@ void FlameGraph::EnableFlameFile() {
     resetLogFile();
 }
 
+void FlameGraph::SetMaxDepth(int max_depth) {
+    if (max_depth > 1) {
+        flame_graph_ctx.max_depth_ = max_depth;
+    }
+}
+
+void FlameGraph::SetFilterThreshold(int filter_threshold) {
+    perf_threshold_ns_ = perf_period_ns_ * filter_threshold;
+}
+
 void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
     if (sample_data->callchain.nr > 256) {
         fprintf(stdout, "[Ignore Sample Data] Pid: %d, Tid: %d, Nr: %lld\n",sample_data->tid_entry.pid, sample_data->tid_entry.tid, sample_data->callchain.nr);
         return;
     }
-    last_sample_time_ = sample_data->time / flame_graph_ctx.perf_period_ns_;
+    last_sample_time_ = sample_data->time / perf_period_ns_;
     sample_datas_->add(last_sample_time_, sample_data, setSampleData);
 }
 
@@ -200,9 +204,10 @@ string FlameGraph::GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>>
     __u64 start_time = 0, end_time = 0;
     int size = periods.size();
     for (int i = 0; i < size; i++) {
-        start_time = (periods[i].first - monotonic_time_diff_) / flame_graph_ctx.perf_period_ns_; // ns->ms
-        end_time = (periods[i].second - monotonic_time_diff_) / flame_graph_ctx.perf_period_ns_; // ns->ms
-        if (end_time - start_time >= 2) {
+        if (periods[i].second - periods[i].first >= perf_threshold_ns_) {
+            start_time = (periods[i].first - monotonic_time_diff_) / perf_period_ns_; // ns->ms
+            end_time = (periods[i].second - monotonic_time_diff_) / perf_period_ns_; // ns->ms
+
             fprintf(stdout, ">> Collect: %lld -> %lld, Duration: %lld, Exist Data %ld -> %ld\n", start_time, end_time, end_time-start_time, sample_datas_->getFrom(), sample_datas_->getTo());
             sample_datas_->collect(start_time, end_time, aggregateData, aggTidData);
             result.append(aggregateData->ToString());

@@ -49,6 +49,7 @@ class FlameGraph {
   void EnableAutoGet();
   void EnableFlameFile();
   void SetMaxDepth(int max_depth);
+  void SetFilterThreshold(int filter_threshold);
   void RecordSampleData(struct sample_type_data *sample_data);
   void CollectData();
   string GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &periods);
@@ -58,6 +59,8 @@ class FlameGraph {
   void resetLogFile();
 
   int cache_keep_time_;
+  int perf_period_ns_;
+  int perf_threshold_ns_;
   long monotonic_time_diff_;
   bool write_flame_graph_;
   __u64 last_sample_time_;

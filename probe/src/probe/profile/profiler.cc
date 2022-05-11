@@ -68,6 +68,10 @@ void Profiler::SetMaxDepth(int max_depth) {
     profile_ctx.flame_graph->SetMaxDepth(max_depth);
 }
 
+void Profiler::SetFilterThreshold(int filter_threshold) {
+    profile_ctx.flame_graph->SetFilterThreshold(filter_threshold);
+}
+
 string Profiler::GetOnCpuData(__u32 tid, vector<pair<uint64_t, uint64_t>> &periods) {
     return profile_ctx.flame_graph->GetOnCpuData(tid, periods);
 }
