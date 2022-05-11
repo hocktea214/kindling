@@ -1,8 +1,5 @@
 #include "src/probe/profile/flame_graph.h"
 #include "src/probe/profile/bcc/symbol.h"
-#include <cstddef>
-#include <sys/types.h>
-#include <time.h>
 #include <string.h>
 
 struct FlameGraphCtx{
@@ -153,6 +150,16 @@ void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
     sample_datas_->add(last_sample_time_, sample_data, setSampleData);
 }
 
+long getFixTime() {
+    struct timespec timestamp = {0, 0};
+    clock_gettime(CLOCK_BOOTTIME, &timestamp);
+    long bootTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec;
+
+    clock_gettime(CLOCK_MONOTONIC_RAW, &timestamp);
+    long monotonicTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec;
+    return bootTime - monotonicTime;
+}
+
 void FlameGraph::CollectData() {
     if (flame_graph_ctx.auto_get_) {
         AggregateData *aggregateData = new AggregateData(0);
@@ -165,7 +172,7 @@ void FlameGraph::CollectData() {
         }
     }
 
-    fprintf(stdout, "Before Exipre Size: %d\n", sample_datas_->size());
+    fprintf(stdout, "Before Exipre Size: %d, %ld->%ld\n", sample_datas_->size(), sample_datas_->getFrom(), sample_datas_->getTo());
     // Expire RingBuffer Datas.
     sample_datas_->expire(last_sample_time_ - cache_keep_time_);
     fprintf(stdout, "After Exipre Size: %d\n", sample_datas_->size());
@@ -177,9 +184,10 @@ string FlameGraph::GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>>
 
     __u64 start_time = 0, end_time = 0;
     int size = periods.size();
+    long diff = getFixTime();
     for (int i = 0; i < size; i++) {
-        start_time = periods[i].first / flame_graph_ctx.perf_period_ns_; // ns->ms
-        end_time = periods[i].second / flame_graph_ctx.perf_period_ns_; // ns->ms
+        start_time = (periods[i].first - diff) / flame_graph_ctx.perf_period_ns_; // ns->ms
+        end_time = (periods[i].second - diff) / flame_graph_ctx.perf_period_ns_; // ns->ms
         if (start_time < end_time) {
             fprintf(stdout, ">> Collect: %lld -> %lld, Duration: %lld, Exist Data %ld -> %ld\n", start_time, end_time, end_time-start_time, sample_datas_->getFrom(), sample_datas_->getTo());
             sample_datas_->collect(start_time, end_time, aggregateData, aggTidData);
