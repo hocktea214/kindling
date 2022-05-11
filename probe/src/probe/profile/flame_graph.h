@@ -58,9 +58,9 @@ class FlameGraph {
   void resetMontonicTimeDiff();
   void resetLogFile();
 
-  int cache_keep_time_;
-  int perf_period_ns_;
-  int perf_threshold_ns_;
+  __u64 cache_keep_time_;
+  __u64 perf_period_ns_;
+  __u64 perf_threshold_ns_;
   long monotonic_time_diff_;
   bool write_flame_graph_;
   __u64 last_sample_time_;

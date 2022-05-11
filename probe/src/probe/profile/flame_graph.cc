@@ -202,8 +202,8 @@ string FlameGraph::GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>>
     AggregateData *aggregateData = new AggregateData(tid);
 
     __u64 start_time = 0, end_time = 0;
-    int size = periods.size();
-    for (int i = 0; i < size; i++) {
+    __u64 size = periods.size();
+    for (__u64 i = 0; i < size; i++) {
         if (periods[i].second - periods[i].first >= perf_threshold_ns_) {
             start_time = (periods[i].first - monotonic_time_diff_) / perf_period_ns_; // ns->ms
             end_time = (periods[i].second - monotonic_time_diff_) / perf_period_ns_; // ns->ms
@@ -214,6 +214,10 @@ string FlameGraph::GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>>
             aggregateData->Reset();
         }
         result.append("|");
+    }
+    if (result.size() == size) {
+        // Set values like |||| to empty.
+        return "";
     }
     return result;
 }
