@@ -86,9 +86,16 @@ class Bucket {
         int m_from;
         int m_to;
     public:
-        Bucket(long ts, RingBuffer<Data> *ring, int from, int to):m_ts(ts),m_ring(ring),m_from(from),m_to(to) {}
+        Bucket() {}
         ~Bucket() {
             m_ring = NULL;
+        }
+
+        void setValue(long ts, RingBuffer<Data> *ring, int from, int to) {
+            m_ts = ts;
+            m_ring = ring;
+            m_from = from;
+            m_to = to;
         }
 
         long getTs() {
@@ -97,6 +104,10 @@ class Bucket {
 
         RingBuffer<Data> *getRingBuffer() {
             return m_ring;
+        }
+
+        void clearRingBuffer() {
+            m_ring = NULL;
         }
 
         void setTo(int to) {
@@ -120,15 +131,44 @@ class Bucket {
 };
 
 template <typename Data>
+class BucketCache {
+    std::list<Bucket<Data>*> m_buckets;
+    public:
+        BucketCache() {
+            m_buckets = {};
+        }
+        ~BucketCache() {
+            m_buckets.clear();
+        }
+
+        Bucket<Data>* borrowBucket(RingBuffer<Data> *ringBuffer, long ts, int index) {
+            Bucket<Data>* bucket;
+            if (m_buckets.empty()) {
+                bucket = new Bucket<Data>();
+            } else {
+                bucket = m_buckets.back();
+                m_buckets.pop_back();
+            }
+            bucket->setValue(ts, ringBuffer, index, index);
+            return bucket;
+        }
+
+        void returnBucket(Bucket<Data>* bucket) {
+            bucket->clearRingBuffer();
+            m_buckets.push_back(bucket);
+        }
+};
+
+template <typename Data>
 class RingBuffers {
     private:
         int m_size;
         std::list<Bucket<Data>*> m_buckets;
         RingBuffer<Data> *m_big_ring;
+        BucketCache<Data> *m_bucket_cache;
 
         Bucket<Data> *addBucket(RingBuffer<Data> *ringBuffer, long ts, void* value, setData setFn) {
-            int index = ringBuffer->push(value, setFn);
-            Bucket<Data> *bucket = new Bucket<Data>(ts, ringBuffer, index, index);
+            Bucket<Data> *bucket = m_bucket_cache->borrowBucket(ringBuffer, ts, ringBuffer->push(value, setFn));
             m_buckets.push_back(bucket);
             return bucket;
         }
@@ -136,9 +176,12 @@ class RingBuffers {
         RingBuffers(int size):m_size(size) {
             m_buckets = {};
             m_big_ring = new RingBuffer<Data>(size);
+            m_bucket_cache = new BucketCache<Data>();
         }
         ~RingBuffers() {
             m_buckets.clear();
+            delete m_big_ring;
+            delete m_bucket_cache;
         }
         
         void add(long ts, void* value, setData setFn) {
@@ -161,7 +204,7 @@ class RingBuffers {
                     if (bucket->getTs() == ts) {
                         bucket->setTo(index);
                     } else {
-                        m_buckets.push_back(new Bucket<Data>(ts, ringBuffer, index, index));
+                        m_buckets.push_back(m_bucket_cache->borrowBucket(ringBuffer, ts, index));
                     }
                 }
             }
@@ -179,7 +222,7 @@ class RingBuffers {
                             delete bucket->getRingBuffer();
                         }
                     }
-                    delete bucket;
+                    m_bucket_cache->returnBucket(bucket);
                 } else {
                     it++;
                 }

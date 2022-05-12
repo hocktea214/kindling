@@ -13,7 +13,6 @@ using std::list;
 using std::map;
 using std::vector;
 using std::string;
-using std::string;
 
 class SampleData {
   public:
@@ -22,7 +21,6 @@ class SampleData {
 
     __u32 pid_;
     __u32 tid_;
-    __u64 time_;
     __u64 nr_;
     __u64 ips_[256];
   private:
