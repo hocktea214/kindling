@@ -160,52 +160,8 @@ void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
         fprintf(stdout, "[Ignore Sample Data] Pid: %d, Tid: %d, Nr: %lld\n",sample_data->tid_entry.pid, sample_data->tid_entry.tid, sample_data->callchain.nr);
         return;
     }
-    struct timespec timestamp = {0, 0};
-    clock_gettime(CLOCK_BOOTTIME, &timestamp);
-    long bootTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_MONOTONIC_RAW, &timestamp);
-    long monotonicRawTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_MONOTONIC, &timestamp);
-    long monotonicTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_MONOTONIC_COARSE, &timestamp);
-    long monotonicCoarseTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_REALTIME_ALARM, &timestamp);
-    long realTimeAlarm = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_BOOTTIME_ALARM, &timestamp);
-    long bootTimeAlarm = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_REALTIME_COARSE, &timestamp);
-    long realCoarseTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_REALTIME, &timestamp);
-    long realTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &timestamp);
-    long processCpuTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &timestamp);
-    long threadCpuTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec - sample_data->time;
-
-    fprintf(stdout, "Perf Diff: Boot: %ld, Montonic: %ld,  MontonicRaw: %ld, MontonicCoarse: %ld, RealTimeAlarm:%ld, BootTimeAlarm:%ld, RealCoarse: %ld, Real: %ld, ProcessCpu: %ld, ThreadCpu: %ld\n",
-        bootTime, monotonicTime, monotonicRawTime, realTimeAlarm, bootTimeAlarm, monotonicCoarseTime, realCoarseTime, realTime, processCpuTime, threadCpuTime);
-
     last_sample_time_ = sample_data->time / perf_period_ns_;
     sample_datas_->add(last_sample_time_, sample_data, setSampleData);
-}
-
-void FlameGraph::resetMontonicTimeDiff() {
-    struct timespec timestamp = {0, 0};
-    clock_gettime(CLOCK_BOOTTIME, &timestamp);
-    long bootTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec;
-
-    clock_gettime(CLOCK_MONOTONIC_RAW, &timestamp);
-    long monotonicTime = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec;
-    monotonic_time_diff_ = bootTime - monotonicTime;
 }
 
 void FlameGraph::CollectData() {
@@ -219,8 +175,6 @@ void FlameGraph::CollectData() {
         } else {
             aggregateData->ToString();
         }
-    } else {
-        resetMontonicTimeDiff();
     }
 
     fprintf(stdout, "Before Exipre Size: %d\n", sample_datas_->size());
@@ -238,8 +192,8 @@ string FlameGraph::GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>>
     __u64 size = periods.size();
     for (__u64 i = 0; i < size; i++) {
         if (periods[i].second - periods[i].first >= perf_threshold_ns_) {
-            start_time = (periods[i].first - monotonic_time_diff_) / perf_period_ns_; // ns->ms
-            end_time = (periods[i].second - monotonic_time_diff_) / perf_period_ns_; // ns->ms
+            start_time = periods[i].first / perf_period_ns_; // ns->ms
+            end_time = periods[i].second / perf_period_ns_; // ns->ms
 
             fprintf(stdout, ">> Collect: %lld -> %lld, Duration: %lld, Exist Data %ld -> %ld\n", start_time, end_time, end_time-start_time, sample_datas_->getFrom(), sample_datas_->getTo());
             sample_datas_->collect(start_time, end_time, aggregateData, aggTidData);

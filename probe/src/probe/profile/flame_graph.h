@@ -53,13 +53,11 @@ class FlameGraph {
   string GetOnCpuData(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &periods);
 
  private:
-  void resetMontonicTimeDiff();
   void resetLogFile();
 
   __u64 cache_keep_time_;
   __u64 perf_period_ns_;
   __u64 perf_threshold_ns_;
-  long monotonic_time_diff_;
   bool write_flame_graph_;
   __u64 last_sample_time_;
   __u64 last_collect_time_;

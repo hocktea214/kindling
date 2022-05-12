@@ -47,6 +47,8 @@ int perf(struct perfData *data) {
         .wakeup_events  = 1,
         .exclude_kernel = 0,
         .exclude_user   = 0,
+        .use_clockid    = 1,
+        .clockid        = 1, // CLOCK_MONOTONIC
 	};
     uint64_t time_end;
     int time_left;
