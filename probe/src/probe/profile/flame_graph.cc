@@ -123,7 +123,7 @@ static void aggTidData(void* object, void* value) {
 }
 
 FlameGraph::FlameGraph(int cache_keep_time, int perf_period_ms) {
-    sample_datas_ = new RingBuffers<SampleData>(20);
+    sample_datas_ = new RingBuffers<SampleData>(2000);
     perf_period_ns_ = perf_period_ms * 1000000;
     perf_threshold_ns_ = perf_period_ns_;
     cache_keep_time_ = cache_keep_time / perf_period_ms;
