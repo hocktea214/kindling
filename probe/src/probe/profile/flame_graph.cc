@@ -130,6 +130,8 @@ FlameGraph::FlameGraph(int cache_keep_time, int perf_period_ms) {
 
 FlameGraph::~FlameGraph() {
     delete sample_datas_;
+    delete flame_graph_ctx.symbol_table_;
+    flame_graph_ctx.symbol_table_ = NULL;
 }
 
 void FlameGraph::EnableAutoGet() {

@@ -3,7 +3,7 @@
 extern "C" {
 #include "src/probe/profile/perf/perf.h"
 }
-#include "src/probe/profile/ring_buffer.h"
+#include "src/probe/utils/ring_buffer.h"
 #include <string>
 #include <list>
 #include <map>

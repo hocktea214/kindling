@@ -20,5 +20,6 @@ cc_library(
     deps = [
         "//src/probe/profile/perf:cc_library",
         "//src/probe/profile/bcc:cc_library",
+        "//src/probe/utils:cc_library",
     ],
 )
