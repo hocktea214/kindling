@@ -61,7 +61,7 @@ class FlameGraph {
   bool write_flame_graph_;
   __u64 last_sample_time_;
   __u64 last_collect_time_;
-  RingBuffers<SampleData> *sample_datas_;
+  BucketRingBuffers<SampleData> *sample_datas_;
   FILE *collect_file_;
 };
 #endif //KINDLING_PROBE_PROFILE_FLAMEGRAPH_H

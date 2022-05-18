@@ -5,6 +5,7 @@
 
 typedef void(*callback) (void*, void*);
 typedef void(*setData) (void*, void*);
+typedef long(*getTime) (void*);
 
 template <typename Data>
 class RingBuffer {
@@ -57,21 +58,22 @@ class RingBuffer {
             }
         }
 
-        void onData(void* obj, callback callFn, int from, int to) {
+        void onData(void* obj, callback callFn, int fromIdx, int toIdx) {
             if (m_count > 0) {
-                if (from <= to) {
-                    for (int i = from; i <= to; i++) {
+                // Called by Bucket whose data is sorted.
+                for (int i = fromIdx; i <= toIdx; i++) {
+                    (*callFn)(obj, &m_data[i]);
+                }
+            }
+        }
+
+        void onData(void* obj, callback callFn, getTime getTimeFn, int fromIdx, int toIdx, long fromTs, long toTs) {
+            if (m_count > 0) {
+                long time = 0;
+                for (int i = fromIdx; i <= toIdx; i++) {
+                    time = (*getTimeFn)(&m_data[i]);
+                    if (time >= fromTs && time < toTs) {
                         (*callFn)(obj, &m_data[i]);
-                    }
-                } else {
-                    for (int i = from; i < m_size; i++) {
-                        (*callFn)(obj, &m_data[i]);
-                    }
-                    for (int i = 0; i < to; i++) {
-                        (*callFn)(obj, &m_data[i]);
-                    }
-                    if (from != to) {
-                        (*callFn)(obj, &m_data[to]);
                     }
                 }
             }
@@ -160,9 +162,10 @@ class BucketCache {
 };
 
 template <typename Data>
-class RingBuffers {
+class BucketRingBuffers {
     private:
         int m_size;
+        long m_bucket_period;
         std::list<Bucket<Data>*> m_buckets;
         RingBuffer<Data> *m_big_ring;
         BucketCache<Data> *m_bucket_cache;
@@ -173,20 +176,21 @@ class RingBuffers {
             return bucket;
         }
     public:
-        RingBuffers(int size):m_size(size) {
+        BucketRingBuffers(int size, long bucket_period):m_size(size), m_bucket_period(bucket_period) {
             m_buckets = {};
             m_big_ring = new RingBuffer<Data>(size);
             m_bucket_cache = new BucketCache<Data>();
         }
-        ~RingBuffers() {
+        ~BucketRingBuffers() {
             m_buckets.clear();
             delete m_big_ring;
             delete m_bucket_cache;
         }
         
-        void add(long ts, void* value, setData setFn) {
+        long add(long ts, void* value, setData setFn) {
+            long bucketTs = ts / m_bucket_period;
             if (m_buckets.empty()) {
-                addBucket(m_big_ring, ts, value, setFn);
+                addBucket(m_big_ring, bucketTs, value, setFn);
             } else {
                 Bucket<Data> *bucket = m_buckets.back();
                 RingBuffer<Data> *ringBuffer = bucket->getRingBuffer();
@@ -198,22 +202,28 @@ class RingBuffers {
                     } else {
                         newBuffer = new RingBuffer<Data>(m_size / 2);
                     }
-                    addBucket(newBuffer, ts, value, setFn);
+                    addBucket(newBuffer, bucketTs, value, setFn);
                 } else {
                     int index = ringBuffer->push(value, setFn);
-                    if (bucket->getTs() == ts) {
+                    if (bucket->getTs() == bucketTs) {
                         bucket->setTo(index);
                     } else {
-                        m_buckets.push_back(m_bucket_cache->borrowBucket(ringBuffer, ts, index));
+                        m_buckets.push_back(m_bucket_cache->borrowBucket(ringBuffer, bucketTs, index));
                     }
                 }
             }
+            return bucketTs;
         }
 
-        void expire(long ts) {
+        void addAndExpire(long ts, long cacheTs, void* value, setData setFn) {
+            long bucketTs = add(ts, value, setFn);
+            expire(bucketTs - cacheTs);
+        }
+
+        void expire(long bucketTs) {
             for (auto it = m_buckets.begin(); it != m_buckets.end();) {
                 Bucket<Data> *bucket = *it;
-                if (bucket->getTs() <= ts) {
+                if (bucket->getTs() <= bucketTs) {
                     m_buckets.erase(it++);
                     bucket->getRingBuffer()->reset(bucket->getFrom(), bucket->getTo());
 
@@ -229,11 +239,22 @@ class RingBuffers {
             }
         }
 
-        void collect(long from, long to, void* obj, callback callFn) {
+        void collect(long fromBucketTs, long toBucketTs, void* obj, callback callFn) {
             for (auto it = m_buckets.begin(); it != m_buckets.end();it++) {
                 Bucket<Data> *bucket = *it;
-                if (bucket->getTs() > from && bucket->getTs() <= to) {
+                if ((fromBucketTs == toBucketTs && bucket->getTs() == fromBucketTs) || (bucket->getTs() > fromBucketTs && bucket->getTs() <= toBucketTs)) {
                     bucket->getRingBuffer()->onData(obj, callFn, bucket->getFrom(), bucket->getTo());
+                }
+            }
+        }
+
+        void collect(long from, long to, void* obj, callback callFn, getTime getTimeFn) {
+            long fromBucketTs = from / m_bucket_period;
+            long toBucketTs = to / m_bucket_period;
+            for (auto it = m_buckets.begin(); it != m_buckets.end();it++) {
+                Bucket<Data> *bucket = *it;
+                if (bucket->getTs() >= fromBucketTs && bucket->getTs() <= toBucketTs) {
+                    bucket->getRingBuffer()->onData(obj, callFn, getTimeFn, bucket->getFrom(), bucket->getTo(), from, to);
                 }
             }
         }

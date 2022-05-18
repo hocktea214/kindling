@@ -5,7 +5,7 @@
 struct FlameGraphCtx{
     string seperator_stack_ = "#";
     string seperator_count_ = "@";
-    string seperator_next_ = "/";
+    string seperator_next_ = "!";
 
     int max_depth_ = 1;
     bool auto_get_ = false;
@@ -122,8 +122,8 @@ static void aggTidData(void* object, void* value) {
 }
 
 FlameGraph::FlameGraph(int cache_keep_time, int perf_period_ms) {
-    sample_datas_ = new RingBuffers<SampleData>(2000);
     perf_period_ns_ = perf_period_ms * 1000000;
+    sample_datas_ = new BucketRingBuffers<SampleData>(2000, perf_period_ns_);
     perf_threshold_ns_ = perf_period_ns_;
     cache_keep_time_ = cache_keep_time / perf_period_ms;
 }
@@ -162,8 +162,7 @@ void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
         fprintf(stdout, "[Ignore Sample Data] Pid: %d, Tid: %d, Nr: %lld\n",sample_data->tid_entry.pid, sample_data->tid_entry.tid, sample_data->callchain.nr);
         return;
     }
-    last_sample_time_ = sample_data->time / perf_period_ns_;
-    sample_datas_->add(last_sample_time_, sample_data, setSampleData);
+    last_sample_time_ = sample_datas_->add(last_sample_time_, sample_data, setSampleData);
 }
 
 void FlameGraph::CollectData() {
@@ -180,7 +179,7 @@ void FlameGraph::CollectData() {
     }
 
     fprintf(stdout, "Before Exipre Size: %d\n", sample_datas_->size());
-    // Expire RingBuffer Datas.
+    // Expire BucketRingBuffers Datas.
     sample_datas_->expire(last_sample_time_ - cache_keep_time_);
     fprintf(stdout, "After Exipre Size: %d\n", sample_datas_->size());
     last_collect_time_ = last_sample_time_;
