@@ -39,6 +39,7 @@ pl_cc_binary(
         "//third_party:agent-libs_build",
 	    "//third_party:zmq_build",
         "//src/probe/profile:cc_library",
+        "//src/probe/log:cc_library",
     ],
 )
 

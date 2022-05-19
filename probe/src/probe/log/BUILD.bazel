@@ -1,0 +1,24 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "cc_library",
+    srcs = glob(
+        [
+            "*.h",
+            "*.cc",
+            "*.cpp",
+        ],
+        exclude = [
+            "**/*_test.cpp",
+            "**/*_benchmark.cc",
+        ],
+    ),
+    copts = ["-Ibazel-out/k8-fastbuild/bin/third_party/agent-libs_build/include/userspace/libscap", "-Ibazel-out/k8-fastbuild/bin/third_party/agent-libs_build/include/userspace/libsinsp/third-party/jsoncpp", "-Ibazel-out/k8-fastbuild/bin/third_party/agent-libs_build/include/userspace/libsinsp", "-Wno-unused-parameter","-Wno-unused-variable","-Wno-mismatched-tags"],
+    hdrs = glob(["*.h"]),
+    deps = [
+         "//third_party:agent-libs_build",
+        "//src/probe/utils:cc_library",
+    ],
+)
