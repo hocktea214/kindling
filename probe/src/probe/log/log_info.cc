@@ -25,7 +25,7 @@ __u32 LogData::getTid() {
     return tid_;
 }
 
-char* LogData::getData() {
+string LogData::getData() {
     return data_;
 }
 
@@ -65,7 +65,8 @@ void LogDatas::CollectLogs(void* data) {
     if (log_data->getTid() != tid_) {
         return;
     }
-    fprintf(stdout, "Collect Log: %s\n", log_data->getData());
+    fprintf(stdout, "Collect Log: %s\n", log_data->getData().c_str());
+    // TODO log is split to 2 logs.
     logs_.push_back(log_data->getData());
 }
 
@@ -134,13 +135,18 @@ string LogCache::getLogs(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &perio
     __u64 start_time = 0, end_time = 0;
     __u64 size = periods.size();
     LogDatas *logDatas = new LogDatas(tid);
+    // len@logs|len2@logs|0@|
     string result = "";
     for (__u64 i = 0; i < size; i++) {            
         logs_->collect(periods[i].first, periods[i].second, logDatas, collectTidData, getLogTime);
         string log = logDatas->ToString();
         if (log != "") {
+            result.append(std::to_string(log.length()));
+            result.append("@");
             result.append(log);
-            result.append("\n");
+            result.append("|");
+        } else {
+            result.append("0@|");
         }
         logDatas->Reset();
     }

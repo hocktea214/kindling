@@ -17,12 +17,12 @@ class LogData {
     void setData(long ts, int64_t size, __u32 tid, char* data);
     long getTs();
     __u32 getTid();
-    char* getData();
+    string getData();
   private:
     long ts_;
     int64_t size_;
     __u32 tid_;
-    char* data_;
+    string data_;
 };
 
 class LogDatas {
@@ -34,7 +34,7 @@ class LogDatas {
     string ToString();
   private:
     __u32 tid_;
-    list<char*> logs_;
+    list<string> logs_;
 };
 
 class LogCache {
