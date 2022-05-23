@@ -162,7 +162,7 @@ void FlameGraph::RecordSampleData(struct sample_type_data *sample_data) {
         fprintf(stdout, "[Ignore Sample Data] Pid: %d, Tid: %d, Nr: %lld\n",sample_data->tid_entry.pid, sample_data->tid_entry.tid, sample_data->callchain.nr);
         return;
     }
-    last_sample_time_ = sample_datas_->add(last_sample_time_, sample_data, setSampleData);
+    last_sample_time_ = sample_datas_->add(sample_data->time, sample_data, setSampleData);
 }
 
 void FlameGraph::CollectData() {
