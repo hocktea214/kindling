@@ -1,20 +1,21 @@
-#include "log_info.h"
 #include "sinsp.h"
 #include "src/probe/log/log_info.h"
 #include "src/probe/utils/ring_buffer.h"
 #include <cstdio>
+#include <cstring>
 
 LogData::LogData() {}
 
-LogData::~LogData() {}
+LogData::~LogData() {
+    string().swap(data_);
+}
 
 void LogData::setData(long ts, int64_t size, __u32 tid, char* data) {
     ts_ = ts;
     size_ = size;
     tid_ = tid;
     data_ = data;
-
-    fprintf(stdout, "[Add Log] Time: %ld, Tid: %d, Data(%ld): %s\n", ts, tid, size, data);
+    // fprintf(stdout, "[Add Log] Time: %ld, Tid: %d, Data(%ld): %s\n", ts, tid, size, data);
 }
 
 long LogData::getTs() {
@@ -35,13 +36,7 @@ static void setLog(void* object, void* evt) {
 
     // Get Thread Id
     auto s_tinfo = sEvt->get_thread_info();
-    if (!s_tinfo) {
-        return;
-    }
     auto pres = sEvt->get_param_value_raw("res");
-    if (!pres || *(int64_t *) pres->m_val <= 0) {
-        return;
-    }
     auto pData = sEvt->get_param_value_raw("data");
 
     logData->setData(sEvt->get_ts(), *(int64_t *) pres->m_val, s_tinfo->m_tid, pData->m_val);
@@ -97,8 +92,10 @@ static void collectTidData(void* object, void* value) {
     pObject->CollectLogs(value);
 }
 
-LogCache::LogCache(int size, int cacheMs) {
-    logs_ = new BucketRingBuffers<LogData>(size, cacheMs);
+LogCache::LogCache(int size, int cacheSecond) {
+    long bucketTs = 10000000; // 10Ms
+    cacheBucketTime = (1000000000l * cacheSecond) / bucketTs;
+    logs_ = new BucketRingBuffers<LogData>(size, bucketTs);
 }
 
 LogCache::~LogCache() {
@@ -111,8 +108,16 @@ static bool isLogFile(sinsp_evt *sEvt) {
         return false;
     }
     if (s_fdinfo->m_type == SCAP_FD_FILE || s_fdinfo->m_type == SCAP_FD_FILE_V2) {
+        if (s_fdinfo->m_name.find("/bazel/") != string::npos || s_fdinfo->m_name == "/var/log/auth.log") {
+            // Ignore Bazel compile log.
+            return false;
+        }
         // xxx.log xxx.log.yyyy-mm-dd-index
-        return s_fdinfo->m_name.find(".log") != string::npos;
+        bool result = s_fdinfo->m_name.find(".log") != string::npos;
+        // if (result) {
+        //     fprintf(stdout, "Log File: %s\n", s_fdinfo->m_name.c_str());
+        // }
+        return result;
     }
     return false;
 }
@@ -127,7 +132,16 @@ bool LogCache::addLog(void *evt) {
         return false;
     }
     
-    logs_->add(sEvt->get_ts(), evt, setLog);
+    // Get Thread Id
+    auto s_tinfo = sEvt->get_thread_info();
+    if (!s_tinfo) {
+        return false;
+    }
+    auto pres = sEvt->get_param_value_raw("res");
+    if (!pres || *(int64_t *) pres->m_val <= 0) {
+        return false;
+    }
+    logs_->addAndExpire(sEvt->get_ts(), cacheBucketTime, evt, setLog);
     return true;
 }
 

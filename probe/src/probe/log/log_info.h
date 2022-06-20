@@ -39,11 +39,12 @@ class LogDatas {
 
 class LogCache {
   public:
-    LogCache(int size, int cacheMs);
+    LogCache(int size, int cacheSecond);
     ~LogCache();
     bool addLog(void* evt);
     string getLogs(__u32 tid, vector<std::pair<uint64_t, uint64_t>> &periods);
   private:
+    long cacheBucketTime;
     BucketRingBuffers<LogData>* logs_;
 };
 

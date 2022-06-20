@@ -30,7 +30,7 @@ http_archive(
 http_archive(
         name = "lib_perf",
         urls = ["https://github.com/hocktea214/libperf/archive/refs/tags/v1.0.0.tar.gz"],
-        sha256 = "ed38b724e8986b114f0b3214d552c9e2608ff262eedfe6858a98aebec952abae",
+        sha256 = "26c0c75194c87fe02b7bec7a64bd4c31ee1ee98e58a753e0cda4d6994591d05c",
         strip_prefix = "libperf-1.0.0",
         build_file_content = BUILD_ALL_CONTENT,
     )
