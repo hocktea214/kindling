@@ -30,7 +30,6 @@ func fastfailDnsRequest() protocol.FastFailFn {
 func parseDnsRequest() protocol.ParsePkgFn {
 	return func(message *protocol.PayloadMessage) (bool, bool) {
 		offset := message.Offset
-		_, id := message.ReadUInt16(offset)
 		_, flags := message.ReadUInt16(offset + 2)
 
 		qr := (flags >> 15) & 0x1
@@ -67,7 +66,6 @@ func parseDnsRequest() protocol.ParsePkgFn {
 		if err != nil {
 			return false, true
 		}
-		message.AddIntAttribute(constlabels.DnsId, int64(id))
 		message.AddStringAttribute(constlabels.DnsDomain, domain)
 		return true, true
 	}

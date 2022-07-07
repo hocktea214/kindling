@@ -44,6 +44,7 @@ trace:
         dnat_ip: ""
         dnat_port: -1
         container_id: ""
+        comm: "testdemo"
         is_slow: true
         is_server: true
         protocol: "http"

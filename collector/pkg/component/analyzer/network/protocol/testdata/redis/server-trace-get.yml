@@ -38,6 +38,7 @@ trace:
         dnat_ip: ""
         dnat_port: -1
         container_id: ""
+        comm: "redis-server"
         is_slow: false
         is_server: true
         protocol: "redis"

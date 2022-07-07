@@ -96,11 +96,21 @@ func (a *TcpMetricAnalyzer) generateRtt(event *model.KindlingEvent) (*model.Data
 	}
 	// Unit is microsecond
 	rtt := event.GetUintUserAttribute("rtt")
+
+	metric := model.NewIntMetric(constnames.TcpRttMetricName, int64(rtt))
+	if ce := a.telemetry.Logger.Check(zapcore.InfoLevel, "Tcp Rtt: "); ce != nil {
+		ce.Write(
+			zap.String("sip", event.GetSip()),
+			zap.String("dip", event.GetDip()),
+			zap.Uint32("sport", event.GetSport()),
+			zap.Uint32("dport", event.GetDport()),
+			zap.Uint64("rtt", rtt),
+		)
+	}
 	// rtt is zero when the kprobe is invoked in the first time, which should be filtered
 	if rtt == 0 {
 		return nil, nil
 	}
-	metric := model.NewIntMetric(constnames.TcpRttMetricName, int64(rtt))
 	return model.NewDataGroup(constnames.TcpMetricGroupName, labels, event.Timestamp, metric), nil
 }
 

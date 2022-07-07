@@ -24,7 +24,10 @@ receivers:
       - name: syscall_exit-connect
       - name: kretprobe-tcp_connect
       - name: kprobe-tcp_set_state
+  grpcreceiver:
+    port: 9999
 analyzers:
+  rpcanalyzer:
   tcpconnectanalyzer:
     channel_size: 10000
     wait_event_second: 10

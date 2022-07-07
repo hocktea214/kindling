@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package kindling;
+option go_package = "model/model";
+
+// The Grpc service definition.
+service Grpc {
+    // Sends a grpc call with json
+    rpc Send (GrpcParam) returns (GrpcReply) {}
+}
+
+message GrpcParam {
+    Type type = 1;
+    string data = 2;
+}
+
+message GrpcReply {
+    Type type = 1;
+    string result = 2;
+}
+
+enum Type {
+    RPC = 0;
+    HEART = 1;
+}

@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol"
 	"github.com/Kindling-project/kindling/collector/pkg/metadata/conntracker"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 )
@@ -338,4 +339,36 @@ func getMessagePairKey(evt *model.KindlingEvent) messagePairKey {
 			fd:  evt.GetFd(),
 		}
 	}
+}
+
+type frameData struct {
+	event   *model.KindlingEvent
+	message *protocol.PayloadMessage
+	id      int64
+	matched bool
+}
+
+func NewFrameData(event *model.KindlingEvent, message *protocol.PayloadMessage, id int64) *frameData {
+	return &frameData{
+		event:   event,
+		message: message,
+		id:      id,
+	}
+}
+
+func (frame *frameData) match(frames []*frameData) *frameData {
+	for _, match := range frames {
+		if match.id == frame.id {
+			return match
+		}
+	}
+	return nil
+}
+
+func (frame *frameData) markMatched() {
+	frame.matched = true
+}
+
+func (frame *frameData) isMatched() bool {
+	return frame.matched
 }

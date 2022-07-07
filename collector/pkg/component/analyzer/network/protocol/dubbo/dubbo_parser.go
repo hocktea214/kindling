@@ -26,7 +26,18 @@ const (
 func NewDubboParser() *protocol.ProtocolParser {
 	requestParser := protocol.CreatePkgParser(fastfailDubboRequest(), parseDubboRequest())
 	responseParser := protocol.CreatePkgParser(fastfailDubboResponse(), parseDubboResponse())
-	return protocol.NewProtocolParser(protocol.DUBBO, requestParser, responseParser, nil)
+	return protocol.NewRpcProtocolParser(protocol.DUBBO, requestParser, responseParser, dubbo2RequestId())
+}
+
+func dubbo2RequestId() protocol.GetUniqueIdFn {
+	return func(data []byte) (int64, bool) {
+		if len(data) < 16 || data[0] != MagicHigh || data[1] != MagicLow {
+			return 0, false
+		}
+
+		return int64(uint64(data[4])<<56 | uint64(data[5])<<48 | uint64(data[6])<<40 | uint64(data[7])<<32 |
+			uint64(data[8])<<24 | uint64(data[9])<<16 | uint64(data[10])<<8 | uint64(data[11])), true
+	}
 }
 
 /**

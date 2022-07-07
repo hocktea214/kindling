@@ -2,7 +2,6 @@ package dns
 
 import (
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol"
-	"github.com/Kindling-project/kindling/collector/pkg/model/constlabels"
 )
 
 const (
@@ -34,18 +33,15 @@ func NewDnsParser() *protocol.ProtocolParser {
 	requestParser := protocol.CreatePkgParser(fastfailDnsRequest(), parseDnsRequest())
 	responseParser := protocol.CreatePkgParser(fastfailDnsResponse(), parseDnsResponse())
 
-	return protocol.NewProtocolParser(protocol.DNS, requestParser, responseParser, dnsPair())
+	return protocol.NewProtocolParser(protocol.DNS, requestParser, responseParser, dnsId())
 }
 
-func dnsPair() protocol.PairMatch {
-	return func(requests []*protocol.PayloadMessage, response *protocol.PayloadMessage) int {
-		for i, request := range requests {
-			if request.GetIntAttribute(constlabels.DnsId) == response.GetIntAttribute(constlabels.DnsId) &&
-				request.GetStringAttribute(constlabels.DnsDomain) == response.GetStringAttribute(constlabels.DnsDomain) {
-				return i
-			}
+func dnsId() protocol.GetUniqueIdFn {
+	return func(data []byte) (int64, bool) {
+		if len(data) <= DNSHeaderSize {
+			return 0, false
 		}
-		return -1
+		return int64(uint16(data[0])<<8 | uint16(data[1])), true
 	}
 }
 

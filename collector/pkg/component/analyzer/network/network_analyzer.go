@@ -41,6 +41,7 @@ type NetworkAnalyzer struct {
 	protocolMap      map[string]*protocol.ProtocolParser
 	parserFactory    *factory.ParserFactory
 	parsers          []*protocol.ProtocolParser
+	dubboParser      *protocol.ProtocolParser
 
 	dataGroupPool      *DataGroupPool
 	requestMonitor     sync.Map
@@ -109,13 +110,17 @@ func (na *NetworkAnalyzer) Start() error {
 
 	na.protocolMap = map[string]*protocol.ProtocolParser{}
 	parsers := make([]*protocol.ProtocolParser, 0)
-	for _, protocol := range na.cfg.ProtocolParser {
-		protocolparser := na.parserFactory.GetParser(protocol)
+	for _, protocolName := range na.cfg.ProtocolParser {
+		protocolparser := na.parserFactory.GetParser(protocolName)
 		if protocolparser != nil {
-			na.protocolMap[protocol] = protocolparser
-			disableDisern, ok := disableDisernProtocols[protocol]
+			na.protocolMap[protocolName] = protocolparser
+			disableDisern, ok := disableDisernProtocols[protocolName]
 			if !ok || !disableDisern {
 				parsers = append(parsers, protocolparser)
+				if protocolName == protocol.DUBBO {
+					na.dubboParser = protocolparser
+					GetRpcCache().setNetworkAnalyzer(na)
+				}
 			}
 		}
 	}
@@ -174,6 +179,24 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 	isRequest, err := evt.IsRequest()
 	if err != nil {
 		return err
+	}
+
+	if na.dubboParser != nil {
+		if rpcId, ok := na.dubboParser.GetUniqueId(evt.GetData()); ok {
+			isServer := evt.Ctx.FdInfo.Role
+			if isServer && !isRequest {
+				evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)
+				GetRpcCache().sendToCollector(evt, evt.GetSip())
+			} else if !isServer {
+				evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)
+				if isRequest {
+					GetRpcCache().cacheRequest(rpcId, evt)
+				} else {
+					GetRpcCache().cacheResponse(rpcId, evt)
+				}
+			}
+			return nil
+		}
 	}
 	if isRequest {
 		return na.analyseRequest(evt)
@@ -312,12 +335,20 @@ func (na *NetworkAnalyzer) distributeTraceMetric(oldPairs *messagePairs, newPair
 			oldPairs.natTuple = natTuple
 		}
 	}
-
 	// Parse Protocols
 	// Case 1 ConnectFail    Connect
 	// Case 2 Request 498   Connect/Request                         Request
 	// Case 3 Normal             Connect/Request/Response   Request/Response
 	records := na.parseProtocols(oldPairs)
+	return na.distributeDataGroups(records)
+}
+
+func (na *NetworkAnalyzer) parseRpcAndDistributeTraceMetric(mps []*messagePair) error {
+	records := na.parseRpcRequests(mps, na.dubboParser)
+	return na.distributeDataGroups(records)
+}
+
+func (na *NetworkAnalyzer) distributeDataGroups(records []*model.DataGroup) error {
 	for _, record := range records {
 		if ce := na.telemetry.Logger.Check(zapcore.DebugLevel, "NetworkAnalyzer To NextProcess: "); ce != nil {
 			ce.Write(
@@ -398,7 +429,28 @@ func (na *NetworkAnalyzer) parseProtocol(mps *messagePairs, parser *protocol.Pro
 		// Not mergable requests
 		return na.parseMultipleRequests(mps, parser)
 	}
+	return na.parseSingleRequest(mps, parser)
+}
 
+func (na *NetworkAnalyzer) parseRpcRequests(mps []*messagePair, parser *protocol.ProtocolParser) []*model.DataGroup {
+	records := make([]*model.DataGroup, 0)
+	for _, mp := range mps {
+		requestMsg := protocol.NewRequestMessage(mp.request.GetData())
+		if !parser.ParseRequest(requestMsg) {
+			// Parse failure
+			continue
+		}
+		responseMsg := protocol.NewResponseMessage(mp.response.GetData(), requestMsg.GetAttributes())
+		if !parser.ParseResponse(responseMsg) {
+			// Parse failure
+			continue
+		}
+		records = append(records, na.getRpcRecord(mp, parser.GetProtocol(), responseMsg.GetAttributes()))
+	}
+	return records
+}
+
+func (na *NetworkAnalyzer) parseSingleRequest(mps *messagePairs, parser *protocol.ProtocolParser) []*model.DataGroup {
 	// Mergable Data
 	requestMsg := protocol.NewRequestMessage(mps.requests.getData())
 	if !parser.ParseRequest(requestMsg) {
@@ -418,68 +470,78 @@ func (na *NetworkAnalyzer) parseProtocol(mps *messagePairs, parser *protocol.Pro
 	return na.getRecords(mps, parser.GetProtocol(), responseMsg.GetAttributes())
 }
 
+func getParsedFrames(parser *protocol.ProtocolParser, events *events, isRequest bool) []*frameData {
+	var (
+		frame      *frameData
+		event      *model.KindlingEvent
+		message    *protocol.PayloadMessage
+		eventCount = events.size()
+		parsedMsgs = make([]*frameData, 0)
+	)
+	for i := 0; i < eventCount; i++ {
+		event = events.getEvent(i)
+		message = protocol.NewRequestMessage(event.GetData())
+		if !parser.Parse(message, isRequest) {
+			if frame == nil {
+				// Parse failure
+				return parsedMsgs
+			} else {
+				// Packet may be cut off in unpack case, which is not able to be parsed.
+				continue
+			}
+		}
+		id, _ := parser.GetUniqueId(events.getData())
+		frame = NewFrameData(event, message, id)
+		parsedMsgs = append(parsedMsgs, frame)
+	}
+	return parsedMsgs
+}
+
 // parseMultipleRequests parses the messagePairs when we know there could be multiple read requests.
 // This is used only when the protocol is DNS now.
 func (na *NetworkAnalyzer) parseMultipleRequests(mps *messagePairs, parser *protocol.ProtocolParser) []*model.DataGroup {
-	// Match with key when disordering.
-	size := mps.requests.size()
-	parsedReqMsgs := make([]*protocol.PayloadMessage, size)
-	for i := 0; i < size; i++ {
-		req := mps.requests.getEvent(i)
-		requestMsg := protocol.NewRequestMessage(req.GetData())
-		if !parser.ParseRequest(requestMsg) {
-			// Parse failure
-			return nil
-		}
-		parsedReqMsgs[i] = requestMsg
-	}
-
+	parsedReqMsgs := getParsedFrames(parser, mps.requests, true)
 	records := make([]*model.DataGroup, 0)
 	if mps.responses == nil {
-		size := mps.requests.size()
-		for i := 0; i < size; i++ {
-			req := mps.requests.getEvent(i)
+		for _, reqMsg := range parsedReqMsgs {
 			mp := &messagePair{
-				request:  req,
+				request:  reqMsg.event,
 				response: nil,
 			}
-			records = append(records, na.getRecordWithSinglePair(mps, mp, parser.GetProtocol(), parsedReqMsgs[i].GetAttributes()))
+			records = append(records, na.getRecordWithSinglePair(mps, mp, parser.GetProtocol(), reqMsg.message.GetAttributes()))
 		}
 		return records
 	} else {
-		matchedRequestIdx := make(map[int]bool)
-		size := mps.responses.size()
-		for i := 0; i < size; i++ {
-			resp := mps.responses.getEvent(i)
-			responseMsg := protocol.NewResponseMessage(resp.GetData(), model.NewAttributeMap())
-			if !parser.ParseResponse(responseMsg) {
-				// Parse failure
-				return nil
-			}
-			// Match Request with repsone
-			matchIdx := parser.PairMatch(parsedReqMsgs, responseMsg)
-			if matchIdx == -1 {
-				return nil
-			}
-			matchedRequestIdx[matchIdx] = true
+		parsedRespMsgs := getParsedFrames(parser, mps.responses, false)
+		for _, respMsg := range parsedRespMsgs {
+			matchReqMsg := respMsg.match(parsedReqMsgs)
+			if matchReqMsg != nil {
+				// Merge Request Attributes.
+				respMsg.message.GetAttributes().Merge(matchReqMsg.message.GetAttributes())
 
-			mp := &messagePair{
-				request:  mps.requests.getEvent(matchIdx),
-				response: resp,
+				mp := &messagePair{
+					request:  matchReqMsg.event,
+					response: respMsg.event,
+				}
+				// Merge Request Attributes.
+				records = append(records, na.getRecordWithSinglePair(mps, mp, parser.GetProtocol(), respMsg.message.GetAttributes()))
+				matchReqMsg.markMatched()
+			} else {
+				return nil
 			}
-			records = append(records, na.getRecordWithSinglePair(mps, mp, parser.GetProtocol(), responseMsg.GetAttributes()))
 		}
 		// 498 Case
-		reqSize := mps.requests.size()
-		for i := 0; i < reqSize; i++ {
-			req := mps.requests.getEvent(i)
-			if _, matched := matchedRequestIdx[i]; !matched {
+		for _, reqMsg := range parsedReqMsgs {
+			if !reqMsg.isMatched() {
 				mp := &messagePair{
-					request:  req,
+					request:  reqMsg.event,
 					response: nil,
 				}
-				records = append(records, na.getRecordWithSinglePair(mps, mp, parser.GetProtocol(), parsedReqMsgs[i].GetAttributes()))
+				records = append(records, na.getRecordWithSinglePair(mps, mp, parser.GetProtocol(), reqMsg.message.GetAttributes()))
 			}
+		}
+		if len(records) == 0 {
+			return nil
 		}
 		return records
 	}
@@ -555,6 +617,41 @@ func (na *NetworkAnalyzer) getRecords(mps *messagePairs, protocol string, attrib
 	ret.Timestamp = evt.GetStartTime()
 
 	return []*model.DataGroup{ret}
+}
+
+func (na *NetworkAnalyzer) getRpcRecord(mp *messagePair, protocol string, attributes *model.AttributeMap) *model.DataGroup {
+	evt := mp.request
+
+	slow := na.isSlow(mp.getDuration(), protocol)
+	ret := na.dataGroupPool.Get()
+	labels := ret.Labels
+	labels.UpdateAddIntValue(constlabels.Pid, int64(evt.GetPid()))
+	labels.UpdateAddStringValue(constlabels.Comm, evt.GetComm())
+	labels.UpdateAddStringValue(constlabels.SrcIp, evt.GetSip())
+	labels.UpdateAddStringValue(constlabels.DstIp, evt.GetDip())
+	labels.UpdateAddIntValue(constlabels.SrcPort, int64(evt.GetSport()))
+	labels.UpdateAddIntValue(constlabels.DstPort, int64(evt.GetDport()))
+	labels.UpdateAddStringValue(constlabels.DnatIp, constlabels.STR_EMPTY)
+	labels.UpdateAddIntValue(constlabels.DnatPort, -1)
+	labels.UpdateAddStringValue(constlabels.ContainerId, evt.GetContainerId())
+	labels.UpdateAddBoolValue(constlabels.IsError, false)
+	labels.UpdateAddIntValue(constlabels.ErrorType, int64(constlabels.NoError))
+	labels.UpdateAddBoolValue(constlabels.IsSlow, slow)
+	labels.UpdateAddBoolValue(constlabels.IsServer, evt.GetCtx().GetFdInfo().Role)
+	labels.UpdateAddStringValue(constlabels.Protocol, protocol)
+
+	labels.Merge(attributes)
+
+	ret.UpdateAddIntMetric(constvalues.ConnectTime, 0)
+	ret.UpdateAddIntMetric(constvalues.RequestSentTime, mp.getSentTime())
+	ret.UpdateAddIntMetric(constvalues.WaitingTtfbTime, mp.getWaitingTime())
+	ret.UpdateAddIntMetric(constvalues.ContentDownloadTime, mp.getDownloadTime())
+	ret.UpdateAddIntMetric(constvalues.RequestTotalTime, int64(mp.getDuration()))
+	ret.UpdateAddIntMetric(constvalues.RequestIo, int64(mp.getRquestSize()))
+	ret.UpdateAddIntMetric(constvalues.ResponseIo, int64(mp.getResponseSize()))
+
+	ret.Timestamp = evt.GetStartTime()
+	return ret
 }
 
 // getRecordWithSinglePair generates a record whose metrics are copied from the input messagePair,

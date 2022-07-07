@@ -364,23 +364,36 @@ func (message *PayloadMessage) ReadUntilCRLF(from int) (offset int, data []byte)
 
 type FastFailFn func(message *PayloadMessage) bool
 type ParsePkgFn func(message *PayloadMessage) (bool, bool)
-type PairMatch func(requests []*PayloadMessage, response *PayloadMessage) int
+type GetUniqueIdFn func(data []byte) (int64, bool)
 
 type ProtocolParser struct {
 	protocol       string
 	multiFrames    bool
 	requestParser  PkgParser
 	responseParser PkgParser
-	pairMatch      PairMatch
+	getUniqueId    GetUniqueIdFn
+	rpc            bool
 	portCounter    cmap.ConcurrentMap
 }
 
-func NewProtocolParser(protocol string, requestParser PkgParser, responseParser PkgParser, pairMatch PairMatch) *ProtocolParser {
+func NewProtocolParser(protocol string, requestParser PkgParser, responseParser PkgParser, getUniqueId GetUniqueIdFn) *ProtocolParser {
 	return &ProtocolParser{
 		protocol:       protocol,
 		requestParser:  requestParser,
 		responseParser: responseParser,
-		pairMatch:      pairMatch,
+		getUniqueId:    getUniqueId,
+		rpc:            false,
+		portCounter:    cmap.New(),
+	}
+}
+
+func NewRpcProtocolParser(protocol string, requestParser PkgParser, responseParser PkgParser, getUniqueId GetUniqueIdFn) *ProtocolParser {
+	return &ProtocolParser{
+		protocol:       protocol,
+		requestParser:  requestParser,
+		responseParser: responseParser,
+		getUniqueId:    getUniqueId,
+		rpc:            true,
 		portCounter:    cmap.New(),
 	}
 }
@@ -394,14 +407,22 @@ func (parser *ProtocolParser) GetProtocol() string {
 }
 
 func (parser *ProtocolParser) MultiRequests() bool {
-	return parser.pairMatch != nil
+	return !parser.rpc && parser.getUniqueId != nil
 }
 
-func (parser *ProtocolParser) PairMatch(requests []*PayloadMessage, response *PayloadMessage) int {
-	if parser.pairMatch == nil {
-		return -1
+func (parser *ProtocolParser) RpcFrames() bool {
+	return parser.rpc && parser.getUniqueId != nil
+}
+
+func (parser *ProtocolParser) GetUniqueId(data []byte) (int64, bool) {
+	return parser.getUniqueId(data)
+}
+
+func (parser *ProtocolParser) Parse(message *PayloadMessage, isRequest bool) bool {
+	if isRequest {
+		return parser.ParseRequest(message)
 	}
-	return parser.pairMatch(requests, response)
+	return parser.ParseResponse(message)
 }
 
 func (parser *ProtocolParser) ParseRequest(message *PayloadMessage) bool {

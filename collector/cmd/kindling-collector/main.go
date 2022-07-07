@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +15,9 @@ import (
 func main() {
 	// Print version information
 	log.Printf("GitCommitInfo:%s\n", version.Version())
+	go func() {
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
 
 	app, err := application.New()
 	if err != nil {

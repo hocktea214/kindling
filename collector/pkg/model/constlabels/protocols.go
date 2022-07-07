@@ -11,7 +11,6 @@ const (
 	HttpResponsePayload = "response_payload"
 	HttpStatusCode      = "http_status_code"
 
-	DnsId     = "dns_id"
 	DnsDomain = "dns_domain"
 	DnsRcode  = "dns_rcode"
 	DnsIp     = "dns_ip"
@@ -29,6 +28,7 @@ const (
 	KafkaPartition     = "kafka_partition"
 	KafkaErrorCode     = "kafka_error_code"
 
+	DubboRpcId           = "dubbo_rpc_id"
 	DubboRequestPayload  = "request_payload"
 	DubboResponsePayload = "response_payload"
 	DubboErrorCode       = "dubbo_error_code"

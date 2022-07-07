@@ -76,11 +76,11 @@ trace:
         dnat_ip: ""
         dnat_port: -1
         container_id: ""
+        comm: "systemd-resolve"
         is_slow: false
         is_server: true
         protocol: "dns"
         dns_rcode: 0
-        dns_id: 47022
         dns_domain: "ss0.baidu.com."
         dns_ip: "121.227.7.33"
         is_error: false
@@ -104,10 +104,10 @@ trace:
         dnat_ip: ""
         dnat_port: -1
         container_id: ""
+        comm: "systemd-resolve"
         is_slow: false
         is_server: true
         protocol: "dns"
-        dns_id: 14786
         dns_domain: "ss0.baidu.com."
         dns_rcode: 0
         is_error: false

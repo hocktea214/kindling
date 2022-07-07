@@ -50,6 +50,7 @@ trace:
         dnat_ip: ""
         dnat_port: -1
         container_id: ""
+        comm: "mysqld"
         is_slow: false
         is_server: true
         protocol: "mysql"

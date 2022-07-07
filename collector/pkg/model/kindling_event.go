@@ -242,19 +242,19 @@ func (m *KindlingEvent) String() string {
 }
 
 type KindlingEvent struct {
-	Source Source
+	Source Source `json:"source,omitempty"`
 	// Timestamp in nanoseconds at which the event were collected.
-	Timestamp uint64
+	Timestamp uint64 `json:"timestamp,omitempty"`
 	// Name of Kindling Event
-	Name string
+	Name string `json:"name,omitempty"`
 	// Category of Kindling Event, enum
-	Category Category
+	Category Category `json:"category,omitempty"`
 	// Number of UserAttributes
-	ParamsNumber uint16
+	ParamsNumber uint16 `json:"params_number,omitempty"`
 	// User-defined Attributions of Kindling Event, now including latency for syscall.
-	UserAttributes [8]KeyValue
+	UserAttributes [8]KeyValue `json:"user_attributes,omitempty"`
 	// Context includes Thread information and Fd information.
-	Ctx Context
+	Ctx Context `json:"ctx,omitempty"`
 }
 
 func (k *KindlingEvent) Reset() {
@@ -300,11 +300,11 @@ func (m *KindlingEvent) GetCtx() *Context {
 
 type KeyValue struct {
 	// Arguments' Name or Attributions' Name.
-	Key string
+	Key string `json:"key,omitempty"`
 	// Type of Value.
-	ValueType ValueType
+	ValueType ValueType `json:"value_type,omitempty"`
 	// Value of Key in bytes, should be converted according to ValueType.
-	Value []byte
+	Value []byte `json:"value,omitempty"`
 }
 
 func (m *KeyValue) GetKey() string {
@@ -330,9 +330,9 @@ func (m *KeyValue) GetValue() []byte {
 
 type Context struct {
 	// Thread information corresponding to Kindling Event, optional.
-	ThreadInfo Thread
+	ThreadInfo Thread `json:"thread_info,omitempty"`
 	// Fd information corresponding to Kindling Event, optional.
-	FdInfo Fd
+	FdInfo Fd `json:"fd_info,omitempty"`
 }
 
 func (m *Context) GetThreadInfo() *Thread {
@@ -345,19 +345,19 @@ func (m *Context) GetFdInfo() *Fd {
 
 type Thread struct {
 	// Process id of thread.
-	Pid uint32
+	Pid uint32 `json:"pid,omitempty"`
 	// Thread/task id of thread.
-	Tid uint32
+	Tid uint32 `json:"tid,omitempty"`
 	// User id of thread
-	Uid uint32
+	Uid uint32 `json:"uid,omitempty"`
 	// Group id of thread
-	Gid uint32
+	Gid uint32 `json:"gid,omitempty"`
 	// Command of thread.
-	Comm string
+	Comm string `json:"comm,omitempty"`
 	// ContainerId of thread
-	ContainerId string
+	ContainerId string `json:"container_id,omitempty"`
 	// ContainerName of thread
-	ContainerName string
+	ContainerName string `json:"container_name,omitempty"`
 }
 
 func (m *Thread) GetPid() uint32 {
@@ -411,25 +411,25 @@ func (m *Thread) GetContainerName() string {
 
 type Fd struct {
 	// FD number.
-	Num int32
+	Num int32 `json:"num,omitempty"`
 	// Type of FD in enum.
-	TypeFd FDType
+	TypeFd FDType `json:"type_fd,omitempty"`
 	// if FD is type of file
-	Filename  string
-	Directory string
+	Filename  string `json:"filename,omitempty"`
+	Directory string `json:"directory,omitempty"`
 	// if FD is type of ipv4 or ipv6
-	Protocol L4Proto
+	Protocol L4Proto `json:"protocol,omitempty"`
 	// repeated for ipv6, client_ip[0] for ipv4
-	Role  bool
-	Sip   []uint32
-	Dip   []uint32
-	Sport uint32
-	Dport uint32
+	Role  bool     `json:"role,omitempty"`
+	Sip   []uint32 `json:"sip,omitempty"`
+	Dip   []uint32 `json:"dip,omitempty"`
+	Sport uint32   `json:"sport,omitempty"`
+	Dport uint32   `json:"dport,omitempty"`
 	// if FD is type of unix_sock
 	// Source socket endpoint
-	Source uint64
+	Source uint64 `json:"source,omitempty"`
 	// Destination socket endpoint
-	Destination uint64
+	Destination uint64 `json:"destination,omitempty"`
 }
 
 func (m *Fd) GetNum() int32 {

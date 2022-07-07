@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Kindling-project/kindling/collector/pkg/component"
+	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 	"github.com/spf13/viper"
@@ -62,9 +63,9 @@ func (n NopProcessor) Consume(dataGroup *model.DataGroup) error {
 	return nil
 }
 
-var na *NetworkAnalyzer
+var na analyzer.Analyzer
 
-func prepareNetworkAnalyzer() *NetworkAnalyzer {
+func prepareNetworkAnalyzer() analyzer.Analyzer {
 	if na == nil {
 		config := &Config{}
 		viper := viper.New()
@@ -76,12 +77,7 @@ func prepareNetworkAnalyzer() *NetworkAnalyzer {
 		}
 		viper.UnmarshalKey("analyzers.networkanalyzer", config)
 
-		na = &NetworkAnalyzer{
-			cfg:           config,
-			dataGroupPool: NewDataGroupPool(),
-			nextConsumers: []consumer.Consumer{&NopProcessor{}},
-			telemetry:     component.NewDefaultTelemetryTools(),
-		}
+		na = NewNetworkAnalyzer(config, component.NewDefaultTelemetryTools(), []consumer.Consumer{&NopProcessor{}})
 		na.Start()
 	}
 	return na
@@ -108,7 +104,7 @@ func testProtocol(t *testing.T, eventYaml string, traceYamls ...string) {
 
 		t.Run(trace.Key, func(t *testing.T) {
 			mps := trace.PrepareMessagePairs(eventCommon)
-			result := na.parseProtocols(mps)
+			result := na.(*NetworkAnalyzer).parseProtocols(mps)
 			trace.Validate(t, result)
 		})
 	}
@@ -285,10 +281,11 @@ func (evt *TraceEvent) exchange(common *EventCommon) *model.KindlingEvent {
 	var byteData = getData(evt.UserAttributes.Data)
 
 	modelEvt := &model.KindlingEvent{
-		Source:    model.Source(common.Source),
-		Timestamp: evt.Timestamp,
-		Name:      evt.Name,
-		Category:  model.Category(common.Category),
+		Source:       model.Source(common.Source),
+		Timestamp:    evt.Timestamp,
+		Name:         evt.Name,
+		Category:     model.Category(common.Category),
+		ParamsNumber: 3,
 		UserAttributes: [8]model.KeyValue{
 			{Key: "latency", ValueType: model.ValueType_UINT64, Value: Int64ToBytes(evt.UserAttributes.Latency)},
 			{Key: "res", ValueType: model.ValueType_INT64, Value: Int64ToBytes(evt.UserAttributes.Res)},
@@ -383,6 +380,6 @@ func Int64ToBytes(value int64) []byte {
 
 type TraceExpect struct {
 	Timestamp uint64                 `mapstructure:"Timestamp"`
-	Values    map[string]int64       `mapstructure:"Metrics"`
+	Values    map[string]int64       `mapstructure:"Values"`
 	Labels    map[string]interface{} `mapstructure:"Labels"`
 }

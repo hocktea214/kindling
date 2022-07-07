@@ -38,6 +38,10 @@ type CgoReceiver struct {
 	stats           eventCounter
 }
 
+func (r *CgoReceiver) Type() string {
+	return Cgo
+}
+
 func NewCgoReceiver(config interface{}, telemetry *component.TelemetryTools, analyzerManager *analyzerpackage.Manager) receiver.Receiver {
 	cfg, ok := config.(*Config)
 	if !ok {

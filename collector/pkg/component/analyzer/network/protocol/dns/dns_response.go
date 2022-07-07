@@ -39,7 +39,6 @@ Header
 func parseDnsResponse() protocol.ParsePkgFn {
 	return func(message *protocol.PayloadMessage) (bool, bool) {
 		offset := message.Offset
-		_, id := message.ReadUInt16(offset)
 		_, flags := message.ReadUInt16(offset + 2)
 
 		qr := (flags >> 15) & 0x1
@@ -83,7 +82,6 @@ func parseDnsResponse() protocol.ParsePkgFn {
 		if len(ip) > 0 {
 			message.AddStringAttribute(constlabels.DnsIp, ip)
 		}
-		message.AddIntAttribute(constlabels.DnsId, int64(id))
 		message.AddIntAttribute(constlabels.DnsRcode, int64(rcode))
 		if rcode > 0 {
 			message.AddBoolAttribute(constlabels.IsError, true)
