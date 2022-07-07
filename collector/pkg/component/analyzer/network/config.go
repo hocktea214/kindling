@@ -12,14 +12,15 @@ type Config struct {
 	// unit is ms
 	ResponseSlowThreshold int `mapstructure:"response_slow_threshold"`
 
-	EnableConntrack       bool   `mapstructure:"enable_conntrack"`
-	ConntrackMaxStateSize int    `mapstructure:"conntrack_max_state_size"`
-	ConntrackRateLimit    int    `mapstructure:"conntrack_rate_limit"`
-	ProcRoot              string `mapstructure:"proc_root"`
-
-	ProtocolParser      []string         `mapstructure:"protocol_parser"`
-	ProtocolConfigs     []ProtocolConfig `mapstructure:"protocol_config,omitempty"`
-	UrlClusteringMethod string           `mapstructure:"url_clustering_method"`
+	EnableConntrack       bool             `mapstructure:"enable_conntrack"`
+	ConntrackMaxStateSize int              `mapstructure:"conntrack_max_state_size"`
+	ConntrackRateLimit    int              `mapstructure:"conntrack_rate_limit"`
+	ProcRoot              string           `mapstructure:"proc_root"`
+	RpcPort               int              `mapstructure:"rpc_port"`
+	RpcCacheSize          int              `mapstructure:"rpc_cache_size"`
+	ProtocolParser        []string         `mapstructure:"protocol_parser"`
+	ProtocolConfigs       []ProtocolConfig `mapstructure:"protocol_config,omitempty"`
+	UrlClusteringMethod   string           `mapstructure:"url_clustering_method"`
 }
 
 func NewDefaultConfig() *Config {
@@ -27,6 +28,8 @@ func NewDefaultConfig() *Config {
 		ConnectTimeout:        100,
 		RequestTimeout:        60,
 		ResponseSlowThreshold: 500,
+		RpcPort:               9999,
+		RpcCacheSize:          100,
 		EnableConntrack:       true,
 		ConntrackMaxStateSize: 131072,
 		ConntrackRateLimit:    500,

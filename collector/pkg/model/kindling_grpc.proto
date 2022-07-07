@@ -6,20 +6,36 @@ option go_package = "model/model";
 // The Grpc service definition.
 service Grpc {
     // Sends a grpc call with json
-    rpc Send (GrpcParam) returns (GrpcReply) {}
+    rpc Send (RpcDatas) returns (RpcReply) {}
 }
 
-message GrpcParam {
-    Type type = 1;
-    string data = 2;
+message RpcReply {
+    string result = 1;
 }
 
-message GrpcReply {
-    Type type = 1;
-    string result = 2;
+message RpcDatas {
+    repeated RpcData datas = 1;
 }
 
-enum Type {
-    RPC = 0;
-    HEART = 1;
+message RpcData {
+    string sip = 1;
+    uint32 sport = 2;
+    string dip = 3;
+    uint32 dport = 4;
+    uint64 timestamp = 5;
+    int64 rpc_id = 6;
+    int64 size = 7;
+    repeated RpcAttr attrs = 8;
+}
+
+message RpcAttr {
+    string key = 1;
+    string value = 2;
+    RpcAttType type = 3;
+}
+
+enum RpcAttType {
+    STRING = 0;
+    INT = 1;
+    BOOL = 2;
 }

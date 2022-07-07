@@ -372,3 +372,35 @@ func (frame *frameData) markMatched() {
 func (frame *frameData) isMatched() bool {
 	return frame.matched
 }
+
+type rpcPair struct {
+	event      *model.KindlingEvent
+	attributes *model.AttributeMap
+	size       int64
+	timestamp  uint64
+	latency    uint64
+}
+
+func (rp *rpcPair) getSentTime() int64 {
+	return int64(rp.event.GetLatency())
+}
+
+func (rp *rpcPair) getWaitingTime() int64 {
+	return int64(rp.timestamp - rp.latency - rp.event.Timestamp)
+}
+
+func (rp *rpcPair) getDownloadTime() int64 {
+	return int64(rp.latency)
+}
+
+func (rp *rpcPair) getRquestSize() uint64 {
+	return uint64(rp.event.GetResVal())
+}
+
+func (rp *rpcPair) getResponseSize() uint64 {
+	return uint64(rp.size)
+}
+
+func (rp *rpcPair) getDuration() uint64 {
+	return rp.timestamp + rp.event.GetLatency() - rp.event.Timestamp
+}

@@ -24,146 +24,293 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-type Type int32
+type RpcAttType int32
 
 const (
-	Type_RPC   Type = 0
-	Type_HEART Type = 1
+	RpcAttType_STRING RpcAttType = 0
+	RpcAttType_INT    RpcAttType = 1
+	RpcAttType_BOOL   RpcAttType = 2
 )
 
-var Type_name = map[int32]string{
-	0: "RPC",
-	1: "HEART",
+var RpcAttType_name = map[int32]string{
+	0: "STRING",
+	1: "INT",
+	2: "BOOL",
 }
 
-var Type_value = map[string]int32{
-	"RPC":   0,
-	"HEART": 1,
+var RpcAttType_value = map[string]int32{
+	"STRING": 0,
+	"INT":    1,
+	"BOOL":   2,
 }
 
-func (x Type) String() string {
-	return proto.EnumName(Type_name, int32(x))
+func (x RpcAttType) String() string {
+	return proto.EnumName(RpcAttType_name, int32(x))
 }
 
-func (Type) EnumDescriptor() ([]byte, []int) {
+func (RpcAttType) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_7ce63d8b968de3eb, []int{0}
 }
 
-type GrpcParam struct {
-	Type                 Type     `protobuf:"varint,1,opt,name=type,proto3,enum=kindling.Type" json:"type,omitempty"`
-	Data                 string   `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+type RpcReply struct {
+	Result               string   `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *GrpcParam) Reset()         { *m = GrpcParam{} }
-func (m *GrpcParam) String() string { return proto.CompactTextString(m) }
-func (*GrpcParam) ProtoMessage()    {}
-func (*GrpcParam) Descriptor() ([]byte, []int) {
+func (m *RpcReply) Reset()         { *m = RpcReply{} }
+func (m *RpcReply) String() string { return proto.CompactTextString(m) }
+func (*RpcReply) ProtoMessage()    {}
+func (*RpcReply) Descriptor() ([]byte, []int) {
 	return fileDescriptor_7ce63d8b968de3eb, []int{0}
 }
-func (m *GrpcParam) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_GrpcParam.Unmarshal(m, b)
+func (m *RpcReply) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RpcReply.Unmarshal(m, b)
 }
-func (m *GrpcParam) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_GrpcParam.Marshal(b, m, deterministic)
+func (m *RpcReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RpcReply.Marshal(b, m, deterministic)
 }
-func (m *GrpcParam) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_GrpcParam.Merge(m, src)
+func (m *RpcReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RpcReply.Merge(m, src)
 }
-func (m *GrpcParam) XXX_Size() int {
-	return xxx_messageInfo_GrpcParam.Size(m)
+func (m *RpcReply) XXX_Size() int {
+	return xxx_messageInfo_RpcReply.Size(m)
 }
-func (m *GrpcParam) XXX_DiscardUnknown() {
-	xxx_messageInfo_GrpcParam.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_GrpcParam proto.InternalMessageInfo
-
-func (m *GrpcParam) GetType() Type {
-	if m != nil {
-		return m.Type
-	}
-	return Type_RPC
+func (m *RpcReply) XXX_DiscardUnknown() {
+	xxx_messageInfo_RpcReply.DiscardUnknown(m)
 }
 
-func (m *GrpcParam) GetData() string {
-	if m != nil {
-		return m.Data
-	}
-	return ""
-}
+var xxx_messageInfo_RpcReply proto.InternalMessageInfo
 
-type GrpcReply struct {
-	Type                 Type     `protobuf:"varint,1,opt,name=type,proto3,enum=kindling.Type" json:"type,omitempty"`
-	Result               string   `protobuf:"bytes,2,opt,name=result,proto3" json:"result,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *GrpcReply) Reset()         { *m = GrpcReply{} }
-func (m *GrpcReply) String() string { return proto.CompactTextString(m) }
-func (*GrpcReply) ProtoMessage()    {}
-func (*GrpcReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_7ce63d8b968de3eb, []int{1}
-}
-func (m *GrpcReply) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_GrpcReply.Unmarshal(m, b)
-}
-func (m *GrpcReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_GrpcReply.Marshal(b, m, deterministic)
-}
-func (m *GrpcReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_GrpcReply.Merge(m, src)
-}
-func (m *GrpcReply) XXX_Size() int {
-	return xxx_messageInfo_GrpcReply.Size(m)
-}
-func (m *GrpcReply) XXX_DiscardUnknown() {
-	xxx_messageInfo_GrpcReply.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_GrpcReply proto.InternalMessageInfo
-
-func (m *GrpcReply) GetType() Type {
-	if m != nil {
-		return m.Type
-	}
-	return Type_RPC
-}
-
-func (m *GrpcReply) GetResult() string {
+func (m *RpcReply) GetResult() string {
 	if m != nil {
 		return m.Result
 	}
 	return ""
 }
 
+type RpcDatas struct {
+	Datas                []*RpcData `protobuf:"bytes,1,rep,name=datas,proto3" json:"datas,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *RpcDatas) Reset()         { *m = RpcDatas{} }
+func (m *RpcDatas) String() string { return proto.CompactTextString(m) }
+func (*RpcDatas) ProtoMessage()    {}
+func (*RpcDatas) Descriptor() ([]byte, []int) {
+	return fileDescriptor_7ce63d8b968de3eb, []int{1}
+}
+func (m *RpcDatas) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RpcDatas.Unmarshal(m, b)
+}
+func (m *RpcDatas) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RpcDatas.Marshal(b, m, deterministic)
+}
+func (m *RpcDatas) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RpcDatas.Merge(m, src)
+}
+func (m *RpcDatas) XXX_Size() int {
+	return xxx_messageInfo_RpcDatas.Size(m)
+}
+func (m *RpcDatas) XXX_DiscardUnknown() {
+	xxx_messageInfo_RpcDatas.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RpcDatas proto.InternalMessageInfo
+
+func (m *RpcDatas) GetDatas() []*RpcData {
+	if m != nil {
+		return m.Datas
+	}
+	return nil
+}
+
+type RpcData struct {
+	Sip                  string     `protobuf:"bytes,1,opt,name=sip,proto3" json:"sip,omitempty"`
+	Sport                uint32     `protobuf:"varint,2,opt,name=sport,proto3" json:"sport,omitempty"`
+	Dip                  string     `protobuf:"bytes,3,opt,name=dip,proto3" json:"dip,omitempty"`
+	Dport                uint32     `protobuf:"varint,4,opt,name=dport,proto3" json:"dport,omitempty"`
+	Timestamp            uint64     `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	RpcId                int64      `protobuf:"varint,6,opt,name=rpc_id,json=rpcId,proto3" json:"rpc_id,omitempty"`
+	Size_                int64      `protobuf:"varint,7,opt,name=size,proto3" json:"size,omitempty"`
+	Attrs                []*RpcAttr `protobuf:"bytes,8,rep,name=attrs,proto3" json:"attrs,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *RpcData) Reset()         { *m = RpcData{} }
+func (m *RpcData) String() string { return proto.CompactTextString(m) }
+func (*RpcData) ProtoMessage()    {}
+func (*RpcData) Descriptor() ([]byte, []int) {
+	return fileDescriptor_7ce63d8b968de3eb, []int{2}
+}
+func (m *RpcData) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RpcData.Unmarshal(m, b)
+}
+func (m *RpcData) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RpcData.Marshal(b, m, deterministic)
+}
+func (m *RpcData) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RpcData.Merge(m, src)
+}
+func (m *RpcData) XXX_Size() int {
+	return xxx_messageInfo_RpcData.Size(m)
+}
+func (m *RpcData) XXX_DiscardUnknown() {
+	xxx_messageInfo_RpcData.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RpcData proto.InternalMessageInfo
+
+func (m *RpcData) GetSip() string {
+	if m != nil {
+		return m.Sip
+	}
+	return ""
+}
+
+func (m *RpcData) GetSport() uint32 {
+	if m != nil {
+		return m.Sport
+	}
+	return 0
+}
+
+func (m *RpcData) GetDip() string {
+	if m != nil {
+		return m.Dip
+	}
+	return ""
+}
+
+func (m *RpcData) GetDport() uint32 {
+	if m != nil {
+		return m.Dport
+	}
+	return 0
+}
+
+func (m *RpcData) GetTimestamp() uint64 {
+	if m != nil {
+		return m.Timestamp
+	}
+	return 0
+}
+
+func (m *RpcData) GetRpcId() int64 {
+	if m != nil {
+		return m.RpcId
+	}
+	return 0
+}
+
+func (m *RpcData) GetSize_() int64 {
+	if m != nil {
+		return m.Size_
+	}
+	return 0
+}
+
+func (m *RpcData) GetAttrs() []*RpcAttr {
+	if m != nil {
+		return m.Attrs
+	}
+	return nil
+}
+
+type RpcAttr struct {
+	Key                  string     `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value                string     `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Type                 RpcAttType `protobuf:"varint,3,opt,name=type,proto3,enum=kindling.RpcAttType" json:"type,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *RpcAttr) Reset()         { *m = RpcAttr{} }
+func (m *RpcAttr) String() string { return proto.CompactTextString(m) }
+func (*RpcAttr) ProtoMessage()    {}
+func (*RpcAttr) Descriptor() ([]byte, []int) {
+	return fileDescriptor_7ce63d8b968de3eb, []int{3}
+}
+func (m *RpcAttr) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_RpcAttr.Unmarshal(m, b)
+}
+func (m *RpcAttr) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_RpcAttr.Marshal(b, m, deterministic)
+}
+func (m *RpcAttr) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_RpcAttr.Merge(m, src)
+}
+func (m *RpcAttr) XXX_Size() int {
+	return xxx_messageInfo_RpcAttr.Size(m)
+}
+func (m *RpcAttr) XXX_DiscardUnknown() {
+	xxx_messageInfo_RpcAttr.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_RpcAttr proto.InternalMessageInfo
+
+func (m *RpcAttr) GetKey() string {
+	if m != nil {
+		return m.Key
+	}
+	return ""
+}
+
+func (m *RpcAttr) GetValue() string {
+	if m != nil {
+		return m.Value
+	}
+	return ""
+}
+
+func (m *RpcAttr) GetType() RpcAttType {
+	if m != nil {
+		return m.Type
+	}
+	return RpcAttType_STRING
+}
+
 func init() {
-	proto.RegisterEnum("kindling.Type", Type_name, Type_value)
-	proto.RegisterType((*GrpcParam)(nil), "kindling.GrpcParam")
-	proto.RegisterType((*GrpcReply)(nil), "kindling.GrpcReply")
+	proto.RegisterEnum("kindling.RpcAttType", RpcAttType_name, RpcAttType_value)
+	proto.RegisterType((*RpcReply)(nil), "kindling.RpcReply")
+	proto.RegisterType((*RpcDatas)(nil), "kindling.RpcDatas")
+	proto.RegisterType((*RpcData)(nil), "kindling.RpcData")
+	proto.RegisterType((*RpcAttr)(nil), "kindling.RpcAttr")
 }
 
 func init() { proto.RegisterFile("kindling_grpc.proto", fileDescriptor_7ce63d8b968de3eb) }
 
 var fileDescriptor_7ce63d8b968de3eb = []byte{
-	// 201 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x12, 0xce, 0xce, 0xcc, 0x4b,
-	0xc9, 0xc9, 0xcc, 0x4b, 0x8f, 0x4f, 0x2f, 0x2a, 0x48, 0xd6, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17,
-	0xe2, 0x80, 0x09, 0x2a, 0x39, 0x73, 0x71, 0xba, 0x17, 0x15, 0x24, 0x07, 0x24, 0x16, 0x25, 0xe6,
-	0x0a, 0x29, 0x71, 0xb1, 0x94, 0x54, 0x16, 0xa4, 0x4a, 0x30, 0x2a, 0x30, 0x6a, 0xf0, 0x19, 0xf1,
-	0xe9, 0xc1, 0x54, 0xe9, 0x85, 0x54, 0x16, 0xa4, 0x06, 0x81, 0xe5, 0x84, 0x84, 0xb8, 0x58, 0x52,
-	0x12, 0x4b, 0x12, 0x25, 0x98, 0x14, 0x18, 0x35, 0x38, 0x83, 0xc0, 0x6c, 0x25, 0x77, 0x88, 0x21,
-	0x41, 0xa9, 0x05, 0x39, 0x95, 0x44, 0x19, 0x22, 0xc6, 0xc5, 0x56, 0x94, 0x5a, 0x5c, 0x9a, 0x53,
-	0x02, 0x35, 0x06, 0xca, 0xd3, 0x92, 0xe2, 0x62, 0x01, 0xa9, 0x12, 0x62, 0xe7, 0x62, 0x0e, 0x0a,
-	0x70, 0x16, 0x60, 0x10, 0xe2, 0xe4, 0x62, 0xf5, 0x70, 0x75, 0x0c, 0x0a, 0x11, 0x60, 0x34, 0xb2,
-	0xe2, 0x62, 0x01, 0x59, 0x22, 0x64, 0xc4, 0xc5, 0x12, 0x9c, 0x9a, 0x97, 0x22, 0x24, 0x8c, 0x30,
-	0x19, 0xee, 0x03, 0x29, 0x34, 0x41, 0xb0, 0x8b, 0x94, 0x18, 0x9c, 0x78, 0xa3, 0xb8, 0x73, 0xf3,
-	0x53, 0x52, 0x73, 0xf4, 0xc1, 0x64, 0x12, 0x1b, 0x38, 0x14, 0x8c, 0x01, 0x01, 0x00, 0x00, 0xff,
-	0xff, 0x85, 0xb8, 0x60, 0xc7, 0x1c, 0x01, 0x00, 0x00,
+	// 355 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x6c, 0x92, 0x4f, 0x6b, 0xe3, 0x30,
+	0x10, 0xc5, 0xa3, 0xf8, 0x4f, 0x9c, 0x09, 0x59, 0xbc, 0xb3, 0xd9, 0x45, 0x2c, 0x7b, 0x30, 0xbe,
+	0xac, 0xd9, 0x85, 0xb4, 0x24, 0x97, 0x5e, 0x1b, 0x0a, 0x21, 0x50, 0x12, 0x50, 0x72, 0x6a, 0x0f,
+	0xc1, 0xb5, 0x44, 0x30, 0x71, 0x62, 0x21, 0x29, 0x05, 0xf7, 0x2b, 0xf6, 0x4b, 0x15, 0xcb, 0x0e,
+	0xa1, 0x7f, 0x2e, 0x62, 0xde, 0x9b, 0x1f, 0xc3, 0x3c, 0x46, 0xf0, 0x63, 0x9f, 0x1f, 0x79, 0x91,
+	0x1f, 0x77, 0xdb, 0x9d, 0x92, 0xd9, 0x58, 0xaa, 0xd2, 0x94, 0x18, 0x9c, 0xcd, 0x38, 0x86, 0x80,
+	0xc9, 0x8c, 0x09, 0x59, 0x54, 0xf8, 0x0b, 0x7c, 0x25, 0xf4, 0xa9, 0x30, 0x94, 0x44, 0x24, 0xe9,
+	0xb3, 0x56, 0xc5, 0x53, 0xcb, 0xdc, 0xa5, 0x26, 0xd5, 0xf8, 0x17, 0x3c, 0x5e, 0x17, 0x94, 0x44,
+	0x4e, 0x32, 0x98, 0x7c, 0x1f, 0x9f, 0x27, 0x8d, 0x5b, 0x84, 0x35, 0xfd, 0xf8, 0x95, 0x40, 0xaf,
+	0xb5, 0x30, 0x04, 0x47, 0xe7, 0xb2, 0x9d, 0x5a, 0x97, 0x38, 0x02, 0x4f, 0xcb, 0x52, 0x19, 0xda,
+	0x8d, 0x48, 0x32, 0x64, 0x8d, 0xa8, 0x39, 0x9e, 0x4b, 0xea, 0x34, 0x1c, 0x6f, 0x38, 0x6e, 0x39,
+	0xb7, 0xe1, 0xac, 0xc0, 0x3f, 0xd0, 0x37, 0xf9, 0x41, 0x68, 0x93, 0x1e, 0x24, 0xf5, 0x22, 0x92,
+	0xb8, 0xec, 0x62, 0xe0, 0x4f, 0xf0, 0x95, 0xcc, 0xb6, 0x39, 0xa7, 0x7e, 0x44, 0x12, 0x87, 0x79,
+	0x4a, 0x66, 0x0b, 0x8e, 0x08, 0xae, 0xce, 0x5f, 0x04, 0xed, 0x59, 0xd3, 0xd6, 0x75, 0x9a, 0xd4,
+	0x18, 0xa5, 0x69, 0xf0, 0x45, 0x9a, 0x5b, 0x63, 0x14, 0x6b, 0xfa, 0xf1, 0xa3, 0x0d, 0x53, 0x3b,
+	0xf5, 0x92, 0x7b, 0x51, 0x9d, 0xc3, 0xec, 0x45, 0x55, 0x2f, 0xf9, 0x9c, 0x16, 0x27, 0x61, 0xc3,
+	0xf4, 0x59, 0x23, 0x30, 0x01, 0xd7, 0x54, 0x52, 0xd8, 0x34, 0xdf, 0x26, 0xa3, 0x8f, 0xa3, 0x37,
+	0x95, 0x14, 0xcc, 0x12, 0xff, 0xfe, 0x03, 0x5c, 0x3c, 0x04, 0xf0, 0xd7, 0x1b, 0xb6, 0x58, 0xce,
+	0xc3, 0x0e, 0xf6, 0xc0, 0x59, 0x2c, 0x37, 0x21, 0xc1, 0x00, 0xdc, 0xd9, 0x6a, 0x75, 0x1f, 0x76,
+	0x27, 0x37, 0xe0, 0xce, 0x95, 0xcc, 0xf0, 0x1a, 0xdc, 0xb5, 0x38, 0x72, 0xc4, 0x4f, 0x17, 0xd0,
+	0xbf, 0xdf, 0x7b, 0xf6, 0xb8, 0x71, 0x67, 0x36, 0x7c, 0x18, 0x1c, 0x4a, 0x2e, 0x8a, 0x2b, 0xfb,
+	0x3e, 0xf9, 0xf6, 0x2b, 0x4c, 0xdf, 0x02, 0x00, 0x00, 0xff, 0xff, 0xe1, 0x2d, 0xa4, 0x2d, 0x21,
+	0x02, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -179,7 +326,7 @@ const _ = grpc.SupportPackageIsVersion4
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type GrpcClient interface {
 	// Sends a grpc call with json
-	Send(ctx context.Context, in *GrpcParam, opts ...grpc.CallOption) (*GrpcReply, error)
+	Send(ctx context.Context, in *RpcDatas, opts ...grpc.CallOption) (*RpcReply, error)
 }
 
 type grpcClient struct {
@@ -190,8 +337,8 @@ func NewGrpcClient(cc *grpc.ClientConn) GrpcClient {
 	return &grpcClient{cc}
 }
 
-func (c *grpcClient) Send(ctx context.Context, in *GrpcParam, opts ...grpc.CallOption) (*GrpcReply, error) {
-	out := new(GrpcReply)
+func (c *grpcClient) Send(ctx context.Context, in *RpcDatas, opts ...grpc.CallOption) (*RpcReply, error) {
+	out := new(RpcReply)
 	err := c.cc.Invoke(ctx, "/kindling.Grpc/Send", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -202,14 +349,14 @@ func (c *grpcClient) Send(ctx context.Context, in *GrpcParam, opts ...grpc.CallO
 // GrpcServer is the server API for Grpc service.
 type GrpcServer interface {
 	// Sends a grpc call with json
-	Send(context.Context, *GrpcParam) (*GrpcReply, error)
+	Send(context.Context, *RpcDatas) (*RpcReply, error)
 }
 
 // UnimplementedGrpcServer can be embedded to have forward compatible implementations.
 type UnimplementedGrpcServer struct {
 }
 
-func (*UnimplementedGrpcServer) Send(ctx context.Context, req *GrpcParam) (*GrpcReply, error) {
+func (*UnimplementedGrpcServer) Send(ctx context.Context, req *RpcDatas) (*RpcReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Send not implemented")
 }
 
@@ -218,7 +365,7 @@ func RegisterGrpcServer(s *grpc.Server, srv GrpcServer) {
 }
 
 func _Grpc_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GrpcParam)
+	in := new(RpcDatas)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -230,7 +377,7 @@ func _Grpc_Send_Handler(srv interface{}, ctx context.Context, dec func(interface
 		FullMethod: "/kindling.Grpc/Send",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GrpcServer).Send(ctx, req.(*GrpcParam))
+		return srv.(GrpcServer).Send(ctx, req.(*RpcDatas))
 	}
 	return interceptor(ctx, in, info, handler)
 }

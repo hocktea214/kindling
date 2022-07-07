@@ -1,229 +1,213 @@
 package network
 
 import (
-	"context"
-	"encoding/json"
-	"strconv"
 	"sync"
 
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"google.golang.org/grpc"
 )
 
 const (
 	ATTRIBUTE_KEY_RPC_ID = "rpcId"
 )
 
-var rpcCache *RpcCache = newRpcCache()
+var rpcServer *RpcServerCache = newRpcServerCache()
 
-type RpcCache struct {
-	clientDatas     sync.Map // <TuppleKey, RpcClientDatas>
-	na              *NetworkAnalyzer
-	grpcClientCache sync.Map // <ip, GrpcClient>
-	grpcPort        int
+type RpcServerCache struct {
+	rpcDatasCache sync.Map // <TuppleKey, RpcCacheDatas>
+	na            *NetworkAnalyzer
 }
 
-func newRpcCache() *RpcCache {
-	return &RpcCache{}
+func newRpcServerCache() *RpcServerCache {
+	return &RpcServerCache{}
 }
 
-func GetRpcCache() *RpcCache {
-	return rpcCache
+func GetRpcServer() *RpcServerCache {
+	return rpcServer
 }
 
-func (cache *RpcCache) setNetworkAnalyzer(na *NetworkAnalyzer) {
+func (cache *RpcServerCache) setNetworkAnalyzer(na *NetworkAnalyzer) {
 	cache.na = na
 }
 
-func (cache *RpcCache) SetGrpcPort(port int) {
-	cache.grpcPort = port
-}
-
-func (cache *RpcCache) getOrCreateClientDatas(event *model.KindlingEvent) *RpcClientDatas {
-	tuppleKey := getTuppleKey(event)
-	if rpcClientDatasInterface, exist := cache.clientDatas.Load(tuppleKey); exist {
-		return rpcClientDatasInterface.(*RpcClientDatas)
+func (cache *RpcServerCache) getOrCreateCacheDatas(key tuppleKey) *RpcCacheDatas {
+	if rpcDatasInterface, exist := cache.rpcDatasCache.Load(key); exist {
+		return rpcDatasInterface.(*RpcCacheDatas)
 	}
 
-	rpcDatas := NewRpcClientDatas()
-	cache.clientDatas.Store(tuppleKey, rpcDatas)
+	rpcDatas := NewRpcCacheDatas()
+	cache.rpcDatasCache.Store(key, rpcDatas)
 	return rpcDatas
 }
 
-func (cache *RpcCache) cacheRequest(id int64, event *model.KindlingEvent) {
-	cache.getOrCreateClientDatas(event).addRequest(id, event)
+func (cache *RpcServerCache) cacheEvent(id int64, event *model.KindlingEvent) {
+	cache.getOrCreateCacheDatas(getTuppleKey(event)).addEvent(id, event)
 }
 
-func (cache *RpcCache) cacheResponse(id int64, event *model.KindlingEvent) {
-	cache.getOrCreateClientDatas(event).addLocal(event)
+func (cache *RpcServerCache) cacheLocalEvent(event *model.KindlingEvent) {
+	cache.getOrCreateCacheDatas(getTuppleKey(event)).addLocal(event)
 }
 
-func (cache *RpcCache) cacheRemoteResponse(id int64, event *model.KindlingEvent) {
-	cache.getOrCreateClientDatas(event).addRemote(event)
-}
-
-func (cache *RpcCache) sendToCollector(event *model.KindlingEvent, ip string) {
-	var (
-		client model.GrpcClient
-	)
-	if clientInterface, exist := cache.grpcClientCache.Load(ip); exist {
-		client = clientInterface.(model.GrpcClient)
-	} else {
-		client = createGrpcClient(ip)
-		if client == nil {
-			return
-		}
-		cache.grpcClientCache.Store(ip, client)
-	}
-
-	data, _ := json.Marshal(event)
-	if _, err := client.Send(context.Background(), &model.GrpcParam{Type: model.Type_RPC, Data: string(data)}); err != nil {
-		if ce := cache.na.telemetry.Logger.Check(zapcore.InfoLevel, "Fail to Send Grpc Event: "); ce != nil {
-			ce.Write(
-				zap.String("ip", ip),
-				zap.Any("event", event),
-				zap.Error(err),
-			)
-		}
-	}
+func (cache *RpcServerCache) cacheRemoteRpcData(rpcData *model.RpcData) {
+	cache.getOrCreateCacheDatas(getRpcTuppleKey(rpcData)).addRemote(rpcData)
 }
 
 /*
 responses:   [1/2/3,   4, 5/6]
 remoteResps: [1, 2, 3, 4, 5, 6]
 */
-type RpcClientDatas struct {
-	requests     sync.Map // <Id, KindlingEvent>
-	lastResponse *model.KindlingEvent
-	responses    []*model.KindlingEvent // Data is sticked and truncated.
-	remoteResps  []*model.KindlingEvent // Need correct time
+type RpcCacheDatas struct {
+	events         sync.Map // <Id, KindlingEvent>
+	lastEvent      *model.KindlingEvent
+	localEvents    []*model.KindlingEvent // Data is sticked and truncated.
+	remoteRpcDatas []*model.RpcData       // Need correct time
 
 	localMutex  sync.RWMutex
 	remoteMutex sync.RWMutex
 }
 
-func NewRpcClientDatas() *RpcClientDatas {
-	return &RpcClientDatas{
-		responses:   make([]*model.KindlingEvent, 0),
-		remoteResps: make([]*model.KindlingEvent, 0),
-		localMutex:  sync.RWMutex{},
-		remoteMutex: sync.RWMutex{},
+func NewRpcCacheDatas() *RpcCacheDatas {
+	return &RpcCacheDatas{
+		localEvents:    make([]*model.KindlingEvent, 0),
+		remoteRpcDatas: make([]*model.RpcData, 0),
+		localMutex:     sync.RWMutex{},
+		remoteMutex:    sync.RWMutex{},
 	}
 }
 
-func (datas *RpcClientDatas) addRequest(id int64, event *model.KindlingEvent) {
-	datas.requests.Store(id, event)
+func (datas *RpcCacheDatas) addEvent(id int64, event *model.KindlingEvent) {
+	datas.events.Store(id, event)
 }
 
-func (datas *RpcClientDatas) addLocal(event *model.KindlingEvent) {
+func (datas *RpcCacheDatas) addLocal(event *model.KindlingEvent) {
 	datas.localMutex.Lock()
-	datas.responses = append(datas.responses, event)
+	datas.localEvents = append(datas.localEvents, event)
 	datas.localMutex.Unlock()
 }
 
-func (datas *RpcClientDatas) addRemote(event *model.KindlingEvent) {
+func (datas *RpcCacheDatas) addRemote(rpcData *model.RpcData) {
+	var size int
 	datas.remoteMutex.Lock()
-	datas.remoteResps = append(datas.remoteResps, event)
+	datas.remoteRpcDatas = append(datas.remoteRpcDatas, rpcData)
+	size = len(datas.remoteRpcDatas)
 	datas.remoteMutex.Unlock()
+
+	if ce := rpcServer.na.telemetry.Logger.Check(zapcore.DebugLevel, "Cache Remote Rpc: "); ce != nil {
+		ce.Write(
+			zap.Int64("id", rpcData.RpcId),
+			zap.Int("size", size),
+		)
+	}
 }
 
-func (datas *RpcClientDatas) match() []*messagePair {
-	localSize := len(datas.responses)
-	remoteSize := len(datas.remoteResps)
+func (datas *RpcCacheDatas) match() []*rpcPair {
+	localSize := len(datas.localEvents)
+	remoteSize := len(datas.remoteRpcDatas)
 	if localSize == 0 || remoteSize == 0 {
 		return nil
 	}
 
-	mps := make([]*messagePair, 0)
-
+	pairs := make([]*rpcPair, 0)
 	respIndexMap := make(map[int64]int, 0)
 	for i := 0; i < remoteSize; i++ {
-		respIndexMap[datas.remoteResps[i].GetIntUserAttribute(ATTRIBUTE_KEY_RPC_ID)] = i
+		respIndexMap[datas.remoteRpcDatas[i].GetRpcId()] = i
 	}
 
 	var preRemoteIndex int = -1
 	var preIndex int = -1
 	for i := 0; i < localSize; i++ {
-		response := datas.responses[i]
-		id := response.GetIntUserAttribute(ATTRIBUTE_KEY_RPC_ID)
+		localEvent := datas.localEvents[i]
+		id := localEvent.GetIntUserAttribute(ATTRIBUTE_KEY_RPC_ID)
 		if index, ok := respIndexMap[id]; ok {
 			for j := preRemoteIndex + 1; j < index; j++ {
-				preRemoteResp := datas.remoteResps[j]
-				if datas.lastResponse == nil {
-					datas.clearMissDatas(preRemoteResp.GetIntUserAttribute(ATTRIBUTE_KEY_RPC_ID))
+				preRemoteRpcData := datas.remoteRpcDatas[j]
+				if datas.lastEvent == nil {
+					datas.clearMissDatas(preRemoteRpcData.RpcId)
 				} else {
-					mp := datas.addMessagePair(mps, preRemoteResp, datas.lastResponse)
-					if mp != nil {
-						mps = append(mps, mp)
+					rpcPair := datas.getRpcPair(preRemoteRpcData, datas.lastEvent)
+					if rpcPair != nil {
+						pairs = append(pairs, rpcPair)
 					}
 				}
 			}
-			mp := datas.addMessagePair(mps, datas.remoteResps[index], response)
-			if mp != nil {
-				mps = append(mps, mp)
+			rpcPair := datas.getRpcPair(datas.remoteRpcDatas[index], localEvent)
+			if rpcPair != nil {
+				pairs = append(pairs, rpcPair)
 			}
 
 			preRemoteIndex = index
 			preIndex = i
-			datas.lastResponse = response
+			datas.lastEvent = localEvent
 		}
 	}
 	datas.removeResponses(preIndex, localSize)
 	datas.removeRemoteResponses(preRemoteIndex, remoteSize)
-	return mps
+	return pairs
 }
 
-func (datas *RpcClientDatas) addMessagePair(mps []*messagePair, remoteEvent *model.KindlingEvent, localEvent *model.KindlingEvent) *messagePair {
-	id := remoteEvent.GetIntUserAttribute(ATTRIBUTE_KEY_RPC_ID)
-	if request, ok := datas.requests.LoadAndDelete(id); ok {
-		remoteEvent.Timestamp = localEvent.Timestamp
-		remoteEvent.SetLatency(localEvent.GetLatency())
-		remoteEvent.Ctx.FdInfo.Role = localEvent.Ctx.FdInfo.Role
-		return &messagePair{
-			request:  request.(*model.KindlingEvent),
-			response: remoteEvent,
+func (datas *RpcCacheDatas) getRpcPair(remoteRpcData *model.RpcData, localEvent *model.KindlingEvent) *rpcPair {
+	if event, ok := datas.events.LoadAndDelete(remoteRpcData.RpcId); ok {
+		if ce := rpcServer.na.telemetry.Logger.Check(zapcore.DebugLevel, "Match Rpc Data "); ce != nil {
+			ce.Write(
+				zap.Int64("id", remoteRpcData.RpcId),
+			)
+		}
+
+		return &rpcPair{
+			event:      event.(*model.KindlingEvent),
+			timestamp:  localEvent.Timestamp,
+			latency:    localEvent.GetLatency(),
+			attributes: remoteRpcData.GetUserAttributes(),
 		}
 	}
 	return nil
 }
 
-func (datas *RpcClientDatas) clearMissDatas(id int64) {
-	datas.requests.Delete(id)
+func (datas *RpcCacheDatas) clearMissDatas(id int64) {
+	datas.events.Delete(id)
 }
 
-func (datas *RpcClientDatas) removeResponses(index int, size int) {
+func (datas *RpcCacheDatas) removeResponses(index int, size int) {
 	if index >= 0 && index < size {
 		datas.localMutex.Lock()
-		datas.responses = datas.responses[index+1:]
+		datas.localEvents = datas.localEvents[index+1:]
 		datas.localMutex.Unlock()
 	}
 }
 
-func (datas *RpcClientDatas) removeRemoteResponses(index int, size int) {
+func (datas *RpcCacheDatas) removeRemoteResponses(index int, size int) {
 	if index >= 0 && index < size {
+		var afterSize int
 		datas.remoteMutex.Lock()
-		datas.remoteResps = datas.remoteResps[index+1:]
+		datas.remoteRpcDatas = datas.remoteRpcDatas[index+1:]
+		afterSize = len(datas.remoteRpcDatas)
 		datas.remoteMutex.Unlock()
+		if ce := rpcServer.na.telemetry.Logger.Check(zapcore.DebugLevel, "After Pair "); ce != nil {
+			ce.Write(
+				zap.Int("Match Count", index),
+				zap.Int("Before Size", size),
+				zap.Int("After Size", afterSize),
+			)
+		}
 	}
 }
 
-func (datas *RpcClientDatas) clearExpireDatas(checkTime uint64, expireTime uint64) []*messagePair {
-	remoteSize := len(datas.remoteResps)
-	localSize := len(datas.responses)
+func (datas *RpcCacheDatas) clearExpireDatas(checkTime uint64, expireTime uint64) []*rpcPair {
+	remoteSize := len(datas.remoteRpcDatas)
+	localSize := len(datas.localEvents)
 
-	var mps []*messagePair
-	if remoteSize > 0 && datas.lastResponse != nil {
+	var pairs []*rpcPair
+	if remoteSize > 0 && datas.lastEvent != nil {
 		var preRemoteIndex = -1
-		mps = make([]*messagePair, 0)
+		pairs = make([]*rpcPair, 0)
 		// Mergable response which has no records in several seconds.
 		for i := 0; i < remoteSize; i++ {
-			remoteResp := datas.remoteResps[i]
-			if remoteResp.Timestamp <= checkTime {
-				mp := datas.addMessagePair(mps, remoteResp, datas.lastResponse)
-				if mp != nil {
-					mps = append(mps, mp)
+			remoteRpcData := datas.remoteRpcDatas[i]
+			if remoteRpcData.Timestamp <= checkTime {
+				rpcPair := datas.getRpcPair(remoteRpcData, datas.lastEvent)
+				if rpcPair != nil {
+					pairs = append(pairs, rpcPair)
 				}
 
 				preRemoteIndex = i
@@ -237,7 +221,7 @@ func (datas *RpcClientDatas) clearExpireDatas(checkTime uint64, expireTime uint6
 	if localSize > 0 {
 		var localIndex = -1
 		for i := 0; i < localSize; i++ {
-			if datas.responses[i].Timestamp <= expireTime {
+			if datas.localEvents[i].Timestamp <= expireTime {
 				localIndex = i
 			} else {
 				break
@@ -246,25 +230,25 @@ func (datas *RpcClientDatas) clearExpireDatas(checkTime uint64, expireTime uint6
 		datas.removeResponses(localIndex, localSize)
 	}
 
-	datas.requests.Range(func(k, v interface{}) bool {
+	datas.events.Range(func(k, v interface{}) bool {
 		request := v.(*model.KindlingEvent)
 		if request.Timestamp <= expireTime {
-			datas.requests.Delete(k)
+			datas.events.Delete(k)
 		}
 		return true
 	})
-	return mps
+	return pairs
 }
 
-type TuppleKey struct {
+type tuppleKey struct {
 	sip   string
 	dip   string
 	sport uint32
 	dport uint32
 }
 
-func getTuppleKey(evt *model.KindlingEvent) TuppleKey {
-	return TuppleKey{
+func getTuppleKey(evt *model.KindlingEvent) tuppleKey {
+	return tuppleKey{
 		sip:   evt.GetSip(),
 		dip:   evt.GetDip(),
 		sport: evt.GetSport(),
@@ -272,16 +256,11 @@ func getTuppleKey(evt *model.KindlingEvent) TuppleKey {
 	}
 }
 
-func createGrpcClient(ip string) model.GrpcClient {
-	conn, err := grpc.Dial(ip+":"+strconv.Itoa(GetRpcCache().grpcPort), grpc.WithInsecure())
-	if err != nil {
-		if ce := GetRpcCache().na.telemetry.Logger.Check(zapcore.InfoLevel, "Fail to Create GrpcClient: "); ce != nil {
-			ce.Write(
-				zap.String("ip", ip),
-				zap.Error(err),
-			)
-		}
-		return nil
+func getRpcTuppleKey(evt *model.RpcData) tuppleKey {
+	return tuppleKey{
+		sip:   evt.GetSip(),
+		dip:   evt.GetDip(),
+		sport: evt.GetSport(),
+		dport: evt.GetDport(),
 	}
-	return model.NewGrpcClient(conn)
 }

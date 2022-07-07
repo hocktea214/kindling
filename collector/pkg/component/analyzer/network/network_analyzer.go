@@ -119,7 +119,7 @@ func (na *NetworkAnalyzer) Start() error {
 				parsers = append(parsers, protocolparser)
 				if protocolName == protocol.DUBBO {
 					na.dubboParser = protocolparser
-					GetRpcCache().setNetworkAnalyzer(na)
+					StartRpcReceiver(na)
 				}
 			}
 		}
@@ -185,14 +185,17 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 		if rpcId, ok := na.dubboParser.GetUniqueId(evt.GetData()); ok {
 			isServer := evt.Ctx.FdInfo.Role
 			if isServer && !isRequest {
-				evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)
-				GetRpcCache().sendToCollector(evt, evt.GetSip())
+				respMsg := protocol.NewResponseMessage(evt.GetData(), model.NewAttributeMap())
+				if na.dubboParser.ParseResponse(respMsg) {
+					rpcData := model.NewRpcData(evt, rpcId, respMsg.GetAttributes())
+					GetRpcClients().CacheRpcData(rpcData, evt.GetSip())
+				}
 			} else if !isServer {
 				evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)
 				if isRequest {
-					GetRpcCache().cacheRequest(rpcId, evt)
+					GetRpcServer().cacheEvent(rpcId, evt)
 				} else {
-					GetRpcCache().cacheResponse(rpcId, evt)
+					GetRpcServer().cacheLocalEvent(evt)
 				}
 			}
 			return nil
@@ -343,8 +346,8 @@ func (na *NetworkAnalyzer) distributeTraceMetric(oldPairs *messagePairs, newPair
 	return na.distributeDataGroups(records)
 }
 
-func (na *NetworkAnalyzer) parseRpcAndDistributeTraceMetric(mps []*messagePair) error {
-	records := na.parseRpcRequests(mps, na.dubboParser)
+func (na *NetworkAnalyzer) parseRpcAndDistributeTraceMetric(pairs []*rpcPair) error {
+	records := na.parseRpcRequests(pairs, na.dubboParser)
 	return na.distributeDataGroups(records)
 }
 
@@ -432,20 +435,16 @@ func (na *NetworkAnalyzer) parseProtocol(mps *messagePairs, parser *protocol.Pro
 	return na.parseSingleRequest(mps, parser)
 }
 
-func (na *NetworkAnalyzer) parseRpcRequests(mps []*messagePair, parser *protocol.ProtocolParser) []*model.DataGroup {
+func (na *NetworkAnalyzer) parseRpcRequests(pairs []*rpcPair, parser *protocol.ProtocolParser) []*model.DataGroup {
 	records := make([]*model.DataGroup, 0)
-	for _, mp := range mps {
-		requestMsg := protocol.NewRequestMessage(mp.request.GetData())
+	for _, pair := range pairs {
+		requestMsg := protocol.NewRequestMessage(pair.event.GetData())
 		if !parser.ParseRequest(requestMsg) {
 			// Parse failure
 			continue
 		}
-		responseMsg := protocol.NewResponseMessage(mp.response.GetData(), requestMsg.GetAttributes())
-		if !parser.ParseResponse(responseMsg) {
-			// Parse failure
-			continue
-		}
-		records = append(records, na.getRpcRecord(mp, parser.GetProtocol(), responseMsg.GetAttributes()))
+		pair.attributes.Merge(requestMsg.GetAttributes())
+		records = append(records, na.getRpcRecord(pair, parser.GetProtocol()))
 	}
 	return records
 }
@@ -619,10 +618,10 @@ func (na *NetworkAnalyzer) getRecords(mps *messagePairs, protocol string, attrib
 	return []*model.DataGroup{ret}
 }
 
-func (na *NetworkAnalyzer) getRpcRecord(mp *messagePair, protocol string, attributes *model.AttributeMap) *model.DataGroup {
-	evt := mp.request
+func (na *NetworkAnalyzer) getRpcRecord(rp *rpcPair, protocol string) *model.DataGroup {
+	evt := rp.event
 
-	slow := na.isSlow(mp.getDuration(), protocol)
+	slow := na.isSlow(rp.getDuration(), protocol)
 	ret := na.dataGroupPool.Get()
 	labels := ret.Labels
 	labels.UpdateAddIntValue(constlabels.Pid, int64(evt.GetPid()))
@@ -640,15 +639,15 @@ func (na *NetworkAnalyzer) getRpcRecord(mp *messagePair, protocol string, attrib
 	labels.UpdateAddBoolValue(constlabels.IsServer, evt.GetCtx().GetFdInfo().Role)
 	labels.UpdateAddStringValue(constlabels.Protocol, protocol)
 
-	labels.Merge(attributes)
+	labels.Merge(rp.attributes)
 
 	ret.UpdateAddIntMetric(constvalues.ConnectTime, 0)
-	ret.UpdateAddIntMetric(constvalues.RequestSentTime, mp.getSentTime())
-	ret.UpdateAddIntMetric(constvalues.WaitingTtfbTime, mp.getWaitingTime())
-	ret.UpdateAddIntMetric(constvalues.ContentDownloadTime, mp.getDownloadTime())
-	ret.UpdateAddIntMetric(constvalues.RequestTotalTime, int64(mp.getDuration()))
-	ret.UpdateAddIntMetric(constvalues.RequestIo, int64(mp.getRquestSize()))
-	ret.UpdateAddIntMetric(constvalues.ResponseIo, int64(mp.getResponseSize()))
+	ret.UpdateAddIntMetric(constvalues.RequestSentTime, rp.getSentTime())
+	ret.UpdateAddIntMetric(constvalues.WaitingTtfbTime, rp.getWaitingTime())
+	ret.UpdateAddIntMetric(constvalues.ContentDownloadTime, rp.getDownloadTime())
+	ret.UpdateAddIntMetric(constvalues.RequestTotalTime, int64(rp.getDuration()))
+	ret.UpdateAddIntMetric(constvalues.RequestIo, int64(rp.getRquestSize()))
+	ret.UpdateAddIntMetric(constvalues.ResponseIo, int64(rp.getResponseSize()))
 
 	ret.Timestamp = evt.GetStartTime()
 	return ret

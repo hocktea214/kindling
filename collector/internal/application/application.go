@@ -17,17 +17,16 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer/processor/k8sprocessor"
 	"github.com/Kindling-project/kindling/collector/pkg/component/receiver"
 	"github.com/Kindling-project/kindling/collector/pkg/component/receiver/cgoreceiver"
-	"github.com/Kindling-project/kindling/collector/pkg/component/receiver/grpcreceiver"
-	"github.com/hashicorp/go-multierror"
 	"github.com/spf13/viper"
+	"go.uber.org/multierr"
 )
 
 type Application struct {
 	viper             *viper.Viper
 	componentsFactory *ComponentsFactory
 	telemetry         *component.TelemetryManager
-	receiverManager   *receiver.Manager
-	analyzerManagers  []*analyzer.Manager
+	receiver          receiver.Receiver
+	analyzerManager   *analyzer.Manager
 }
 
 func New() (*Application, error) {
@@ -53,14 +52,12 @@ func New() (*Application, error) {
 }
 
 func (a *Application) Run() error {
-	for _, analyzerManager := range a.analyzerManagers {
-		err := analyzerManager.StartAll(a.telemetry.Telemetry.Logger)
-		if err != nil {
-			return fmt.Errorf("failed to start application: %v", err)
-		}
+	err := a.analyzerManager.StartAll(a.telemetry.Telemetry.Logger)
+	if err != nil {
+		return fmt.Errorf("failed to start application: %v", err)
 	}
 	// Wait until the receiver shutdowns
-	err := a.receiverManager.StartAll(a.telemetry.Telemetry.Logger)
+	err = a.receiver.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start application: %v", err)
 	}
@@ -68,19 +65,7 @@ func (a *Application) Run() error {
 }
 
 func (a *Application) Shutdown() error {
-	var retErr error = nil
-	var err error = nil
-	for _, analyzerManager := range a.analyzerManagers {
-		err = analyzerManager.ShutdownAll(a.telemetry.Telemetry.Logger)
-		if err != nil {
-			multierror.Append(retErr, err)
-		}
-	}
-	err = a.receiverManager.ShutdownAll(a.telemetry.Telemetry.Logger)
-	if err != nil {
-		multierror.Append(retErr, err)
-	}
-	return retErr
+	return multierr.Combine(a.receiver.Shutdown(), a.analyzerManager.ShutdownAll(a.telemetry.Telemetry.Logger))
 }
 
 func initFlags() error {
@@ -97,8 +82,6 @@ func (a *Application) registerFactory() {
 	a.componentsFactory.RegisterAnalyzer(loganalyzer.Type.String(), loganalyzer.New, &loganalyzer.Config{})
 	a.componentsFactory.RegisterProcessor(aggregateprocessor.Type, aggregateprocessor.New, aggregateprocessor.NewDefaultConfig())
 	a.componentsFactory.RegisterAnalyzer(tcpconnectanalyzer.Type.String(), tcpconnectanalyzer.New, tcpconnectanalyzer.NewDefaultConfig())
-	a.componentsFactory.RegisterReceiver(grpcreceiver.Grpc, grpcreceiver.NewGrpcReceiver, &grpcreceiver.Config{})
-	a.componentsFactory.RegisterAnalyzer(network.Rpc.String(), network.NewRpcAnalyzer, &network.RpcConfig{})
 }
 
 func (a *Application) readInConfig(path string) error {
@@ -146,25 +129,10 @@ func (a *Application) buildPipeline() error {
 	if err != nil {
 		return fmt.Errorf("error happened while creating analyzer manager: %w", err)
 	}
-
-	rpcAnalyzerFactory := a.componentsFactory.Analyzers[network.Rpc.String()]
-	rpcAnalyzer := rpcAnalyzerFactory.NewFunc(networkAnalyzerFactory.Config, a.telemetry.Telemetry, []consumer.Consumer{})
-	analyzerManager2, err := analyzer.NewManager(rpcAnalyzer)
-	if err != nil {
-		return fmt.Errorf("error happened while creating analyzer manager2: %w", err)
-	}
-	a.analyzerManagers = []*analyzer.Manager{analyzerManager, analyzerManager2}
+	a.analyzerManager = analyzerManager
 
 	cgoReceiverFactory := a.componentsFactory.Receivers[cgoreceiver.Cgo]
 	cgoReceiver := cgoReceiverFactory.NewFunc(cgoReceiverFactory.Config, a.telemetry.Telemetry, analyzerManager)
-
-	grpcReceiverFactory := a.componentsFactory.Receivers[grpcreceiver.Grpc]
-	grpcReceiver := grpcReceiverFactory.NewFunc(grpcReceiverFactory.Config, a.telemetry.Telemetry, analyzerManager2)
-
-	receiverManager, err := receiver.NewManager(cgoReceiver, grpcReceiver)
-	if err != nil {
-		return fmt.Errorf("error happened while creating receiver manager: %w", err)
-	}
-	a.receiverManager = receiverManager
+	a.receiver = cgoReceiver
 	return nil
 }
