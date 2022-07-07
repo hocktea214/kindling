@@ -98,7 +98,7 @@ func (a *TcpMetricAnalyzer) generateRtt(event *model.KindlingEvent) (*model.Data
 	rtt := event.GetUintUserAttribute("rtt")
 
 	metric := model.NewIntMetric(constnames.TcpRttMetricName, int64(rtt))
-	if ce := a.telemetry.Logger.Check(zapcore.InfoLevel, "Tcp Rtt: "); ce != nil {
+	if ce := a.telemetry.Logger.Check(zapcore.DebugLevel, "Tcp Rtt: "); ce != nil {
 		ce.Write(
 			zap.String("sip", event.GetSip()),
 			zap.String("dip", event.GetDip()),
