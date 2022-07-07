@@ -11,6 +11,7 @@
 static sinsp *inspector = nullptr;
 
 int cnt = 0;
+int pid;
 map<string, ppm_event_type> m_events;
 map<string, Category> m_categories;
 int16_t event_filters[1024][16];
@@ -63,6 +64,7 @@ void init_probe()
 	bool bpf = false;
 	string bpf_probe;
 	inspector = new sinsp();
+	pid = getpid();
 	init_sub_label();
 	string output_format;
 	output_format = "*%evt.num %evt.outputtime %evt.cpu %container.name (%container.id) %proc.name (%thread.tid:%thread.vtid) %evt.dir %evt.type %evt.info";
@@ -148,6 +150,9 @@ int getEvent(void **pp_kindling_event)
 	auto threadInfo = ev->get_thread_info();
 	if(threadInfo == nullptr)
 	{
+		return -1;
+	}
+	if (threadInfo->m_ptid == (__int64_t) pid || threadInfo->m_pid == (__int64_t) pid || threadInfo->m_pid == 0) {
 		return -1;
 	}
 
@@ -248,6 +253,14 @@ int getEvent(void **pp_kindling_event)
 	}
 
 	uint16_t userAttNumber = 0;
+	if (get_kindling_source(ev->get_type()) == 2) {
+        // set latency
+		strcpy(p_kindling_event->userAttributes[userAttNumber].key, "latency");
+		memcpy(p_kindling_event->userAttributes[userAttNumber].value, &threadInfo->m_latency, 8);
+		p_kindling_event->userAttributes[userAttNumber].valueType = UINT64;
+		p_kindling_event->userAttributes[userAttNumber].len = 8;
+		userAttNumber++;
+    }
 	switch(ev->get_type())
 	{
 	case PPME_TCP_RCV_ESTABLISHED_E:
@@ -494,4 +507,29 @@ uint16_t get_kindling_category(sinsp_evt *sEvt)
 	default:
 		return CAT_OTHER;
 	}
+}
+
+uint16_t get_kindling_source(uint16_t etype) {
+    if (PPME_IS_ENTER(etype)) {
+        return 1;
+    } else {
+        switch (etype) {
+            case PPME_CONTAINER_X:
+            case PPME_PROCINFO_X:
+            case PPME_SCHEDSWITCH_1_X:
+            case PPME_DROP_X:
+            case PPME_CPU_HOTPLUG_X:
+            case PPME_K8S_X:
+            case PPME_TRACER_X:
+            case PPME_MESOS_X:
+            case PPME_CONTAINER_JSON_X:
+            case PPME_NOTIFICATION_X:
+            case PPME_INFRASTRUCTURE_EVENT_X:
+            case PPME_PAGE_FAULT_X:
+                return 0;
+                // TODO add cases of tracepoint, kprobe, uprobe
+            default:
+                return 2;
+        }
+    }
 }
