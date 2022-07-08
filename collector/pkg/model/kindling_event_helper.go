@@ -81,24 +81,6 @@ func (x *KindlingEvent) AddIntUserAttribute(key string, value int64) {
 	}
 }
 
-func (x *KindlingEvent) SetLatency(value uint64) {
-	if x.ParamsNumber == 0 {
-		return
-	}
-	for index, keyValue := range x.UserAttributes {
-		if index+1 > int(x.ParamsNumber) {
-			break
-		}
-		if keyValue.Key == "latency" {
-			var byteValue = make([]byte, 8)
-			byteOrder.PutUint64(byteValue, value)
-
-			x.UserAttributes[index].Value = byteValue
-			return
-		}
-	}
-}
-
 func (x *KindlingEvent) GetUintUserAttribute(key string) uint64 {
 	keyValue := x.GetUserAttribute(key)
 	if keyValue != nil {

@@ -191,10 +191,10 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 					GetRpcClients().CacheRpcData(rpcData, evt.GetSip())
 				}
 			} else if !isServer {
-				evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)
 				if isRequest {
 					GetRpcServer().cacheEvent(rpcId, evt)
 				} else {
+					evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)
 					GetRpcServer().cacheLocalEvent(evt)
 				}
 			}

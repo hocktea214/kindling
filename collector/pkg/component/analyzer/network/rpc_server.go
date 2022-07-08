@@ -6,33 +6,33 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Kindling-project/kindling/collector/pkg/component"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
 
 func StartRpcReceiver(na *NetworkAnalyzer) {
-	rpcServer.setNetworkAnalyzer(na)
-	go startRpcServer(na)
+	go startRpcServer(na.telemetry, na.cfg.RpcPort)
 
 	rpcClients.SetRpcCfg(na.cfg.RpcPort, na.cfg.RpcCacheSize, na.telemetry)
-	go consumerAndCheckRpcDatas()
+	go consumerAndCheckRpcDatas(na)
 }
 
-func startRpcServer(na *NetworkAnalyzer) {
-	lis, err := net.Listen("tcp", ":"+strconv.Itoa(na.cfg.RpcPort))
+func startRpcServer(telemetry *component.TelemetryTools, rpcPort int) {
+	lis, err := net.Listen("tcp", ":"+strconv.Itoa(rpcPort))
 	if err != nil {
-		na.telemetry.Logger.Error("Fail to listen Grpc Port", zap.Error(err))
+		telemetry.Logger.Error("Fail to listen Grpc Port", zap.Error(err))
 	}
 
 	server := grpc.NewServer()
 	model.RegisterGrpcServer(server, &rpcDatasServer{})
 	if err := server.Serve(lis); err != nil {
-		na.telemetry.Logger.Error("Fail to Start Grpc Server", zap.Error(err))
+		telemetry.Logger.Error("Fail to Start Grpc Server", zap.Error(err))
 	}
 }
 
-func consumerAndCheckRpcDatas() {
+func consumerAndCheckRpcDatas(na *NetworkAnalyzer) {
 	timer := time.NewTicker(1 * time.Second)
 	for {
 		select {
@@ -41,12 +41,12 @@ func consumerAndCheckRpcDatas() {
 				rpcCacheDatas := v.(*RpcCacheDatas)
 				pairs := rpcCacheDatas.match()
 				if len(pairs) > 0 {
-					GetRpcServer().na.parseRpcAndDistributeTraceMetric(pairs)
+					na.parseRpcAndDistributeTraceMetric(pairs)
 				}
 
 				pairs = rpcCacheDatas.clearExpireDatas(uint64(time.Now().UnixNano()-1000000000), uint64(time.Now().UnixNano()-15000000000))
 				if len(pairs) > 0 {
-					GetRpcServer().na.parseRpcAndDistributeTraceMetric(pairs)
+					na.parseRpcAndDistributeTraceMetric(pairs)
 				}
 				return true
 			})

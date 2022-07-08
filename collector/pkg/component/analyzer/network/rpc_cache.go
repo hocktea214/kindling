@@ -4,8 +4,6 @@ import (
 	"sync"
 
 	"github.com/Kindling-project/kindling/collector/pkg/model"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -16,7 +14,6 @@ var rpcServer *RpcServerCache = newRpcServerCache()
 
 type RpcServerCache struct {
 	rpcDatasCache sync.Map // <TuppleKey, RpcCacheDatas>
-	na            *NetworkAnalyzer
 }
 
 func newRpcServerCache() *RpcServerCache {
@@ -25,10 +22,6 @@ func newRpcServerCache() *RpcServerCache {
 
 func GetRpcServer() *RpcServerCache {
 	return rpcServer
-}
-
-func (cache *RpcServerCache) setNetworkAnalyzer(na *NetworkAnalyzer) {
-	cache.na = na
 }
 
 func (cache *RpcServerCache) getOrCreateCacheDatas(key tuppleKey) *RpcCacheDatas {
@@ -42,11 +35,11 @@ func (cache *RpcServerCache) getOrCreateCacheDatas(key tuppleKey) *RpcCacheDatas
 }
 
 func (cache *RpcServerCache) cacheEvent(id int64, event *model.KindlingEvent) {
-	cache.getOrCreateCacheDatas(getTuppleKey(event)).addEvent(id, event)
+	cache.getOrCreateCacheDatas(getEventTuppleKey(event)).addEvent(id, event)
 }
 
 func (cache *RpcServerCache) cacheLocalEvent(event *model.KindlingEvent) {
-	cache.getOrCreateCacheDatas(getTuppleKey(event)).addLocal(event)
+	cache.getOrCreateCacheDatas(getEventTuppleKey(event)).addLocal(event)
 }
 
 func (cache *RpcServerCache) cacheRemoteRpcData(rpcData *model.RpcData) {
@@ -87,18 +80,9 @@ func (datas *RpcCacheDatas) addLocal(event *model.KindlingEvent) {
 }
 
 func (datas *RpcCacheDatas) addRemote(rpcData *model.RpcData) {
-	var size int
 	datas.remoteMutex.Lock()
 	datas.remoteRpcDatas = append(datas.remoteRpcDatas, rpcData)
-	size = len(datas.remoteRpcDatas)
 	datas.remoteMutex.Unlock()
-
-	if ce := rpcServer.na.telemetry.Logger.Check(zapcore.DebugLevel, "Cache Remote Rpc: "); ce != nil {
-		ce.Write(
-			zap.Int64("id", rpcData.RpcId),
-			zap.Int("size", size),
-		)
-	}
 }
 
 func (datas *RpcCacheDatas) match() []*rpcPair {
@@ -148,12 +132,6 @@ func (datas *RpcCacheDatas) match() []*rpcPair {
 
 func (datas *RpcCacheDatas) getRpcPair(remoteRpcData *model.RpcData, localEvent *model.KindlingEvent) *rpcPair {
 	if event, ok := datas.events.LoadAndDelete(remoteRpcData.RpcId); ok {
-		if ce := rpcServer.na.telemetry.Logger.Check(zapcore.DebugLevel, "Match Rpc Data "); ce != nil {
-			ce.Write(
-				zap.Int64("id", remoteRpcData.RpcId),
-			)
-		}
-
 		return &rpcPair{
 			event:      event.(*model.KindlingEvent),
 			timestamp:  localEvent.Timestamp,
@@ -178,18 +156,9 @@ func (datas *RpcCacheDatas) removeResponses(index int, size int) {
 
 func (datas *RpcCacheDatas) removeRemoteResponses(index int, size int) {
 	if index >= 0 && index < size {
-		var afterSize int
 		datas.remoteMutex.Lock()
 		datas.remoteRpcDatas = datas.remoteRpcDatas[index+1:]
-		afterSize = len(datas.remoteRpcDatas)
 		datas.remoteMutex.Unlock()
-		if ce := rpcServer.na.telemetry.Logger.Check(zapcore.DebugLevel, "After Pair "); ce != nil {
-			ce.Write(
-				zap.Int("Match Count", index),
-				zap.Int("Before Size", size),
-				zap.Int("After Size", afterSize),
-			)
-		}
 	}
 }
 
@@ -247,7 +216,7 @@ type tuppleKey struct {
 	dport uint32
 }
 
-func getTuppleKey(evt *model.KindlingEvent) tuppleKey {
+func getEventTuppleKey(evt *model.KindlingEvent) tuppleKey {
 	return tuppleKey{
 		sip:   evt.GetSip(),
 		dip:   evt.GetDip(),
