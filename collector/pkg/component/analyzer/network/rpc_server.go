@@ -13,9 +13,9 @@ import (
 )
 
 func StartRpcReceiver(na *NetworkAnalyzer) {
-	go startRpcServer(na.telemetry, na.cfg.RpcPort)
-
 	rpcClients.SetRpcCfg(na.cfg.RpcPort, na.cfg.RpcCacheSize, na.telemetry)
+
+	go startRpcServer(na.telemetry, na.cfg.RpcPort)
 	go consumerAndCheckRpcDatas(na)
 }
 
@@ -26,7 +26,7 @@ func startRpcServer(telemetry *component.TelemetryTools, rpcPort int) {
 	}
 
 	server := grpc.NewServer()
-	model.RegisterGrpcServer(server, &rpcDatasServer{})
+	model.RegisterGrpcServer(server, &collectorGrpcServer{})
 	if err := server.Serve(lis); err != nil {
 		telemetry.Logger.Error("Fail to Start Grpc Server", zap.Error(err))
 	}
@@ -43,35 +43,51 @@ func consumerAndCheckRpcDatas(na *NetworkAnalyzer) {
 				if len(pairs) > 0 {
 					na.parseRpcAndDistributeTraceMetric(pairs)
 				}
-
-				pairs = rpcCacheDatas.clearExpireDatas(uint64(time.Now().UnixNano()-1000000000), uint64(time.Now().UnixNano()-15000000000))
+				// Expire 15s, check 1s
+				pairs = rpcCacheDatas.clearExpireDatas(1, 15)
 				if len(pairs) > 0 {
 					na.parseRpcAndDistributeTraceMetric(pairs)
 				}
 				return true
 			})
-			GetRpcClients().rpcClientCache.Range(func(k, v interface{}) bool {
+			GetRpcClients().rpcDatasCache.Range(func(k, v interface{}) bool {
 				clientDatas := v.(*rpcClientDatas)
-				clientDatas.checkAndSend(uint64(time.Now().UnixNano() - 1000000000))
-
+				// 1s
+				clientDatas.checkAndSendRpcDatas(k.(podKey), 1)
+				return true
+			})
+			GetRpcClients().rpcConnectCache.Range(func(k, v interface{}) bool {
+				clientConnect := v.(*rpcClientConnect)
+				// Send Period 1min, Expire 1hour
+				clientConnect.checkAndSendPodInfos(60, 3600)
 				return true
 			})
 		}
 	}
 }
 
-type rpcDatasServer struct {
+type collectorGrpcServer struct {
 	model.UnimplementedGrpcServer
 }
 
-func (server *rpcDatasServer) Send(ctx context.Context, in *model.RpcDatas) (*model.RpcReply, error) {
-	recvTime := time.Now().UnixNano()
+func (server *collectorGrpcServer) SendRpcDatas(ctx context.Context, in *model.RpcDatas) (*model.RpcReply, error) {
+	recvTime := uint64(time.Now().UnixNano())
 	for _, data := range in.Datas {
 		// Set Client Time for expire check.
-		data.Timestamp = uint64(recvTime)
-
+		data.Timestamp = recvTime
 		GetRpcServer().cacheRemoteRpcData(data)
 	}
 
 	return &model.RpcReply{Result: ""}, nil
+}
+
+func (server *collectorGrpcServer) SendPodInfos(ctx context.Context, in *model.PodInfos) (*model.PodReply, error) {
+	recvTime := uint64(time.Now().UnixNano())
+	for _, pod := range in.Pods {
+		// Set UpdateTime as Client Time
+		pod.UpdateTime = recvTime - (in.Timestamp - pod.UpdateTime)
+		GetRpcClients().CacheRemotePodInfos(in.HostIp, pod)
+	}
+
+	return &model.PodReply{Result: ""}, nil
 }

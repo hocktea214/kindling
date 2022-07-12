@@ -188,10 +188,12 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 				respMsg := protocol.NewResponseMessage(evt.GetData(), model.NewAttributeMap())
 				if na.dubboParser.ParseResponse(respMsg) {
 					rpcData := model.NewRpcData(evt, rpcId, respMsg.GetAttributes())
-					GetRpcClients().CacheRpcData(rpcData, evt.GetSip())
+					GetRpcClients().CacheRpcData(evt.Ctx.FdInfo.Sip[0], rpcData)
 				}
 			} else if !isServer {
 				if isRequest {
+					// client -> server
+					GetRpcClients().CachePodInfo(evt)
 					GetRpcServer().cacheEvent(rpcId, evt)
 				} else {
 					evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)

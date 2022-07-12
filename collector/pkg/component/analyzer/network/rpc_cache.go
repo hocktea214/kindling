@@ -2,6 +2,7 @@ package network
 
 import (
 	"sync"
+	"time"
 
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 )
@@ -13,7 +14,7 @@ const (
 var rpcServer *RpcServerCache = newRpcServerCache()
 
 type RpcServerCache struct {
-	rpcDatasCache sync.Map // <TuppleKey, RpcCacheDatas>
+	rpcDatasCache sync.Map // <tuppleKey, RpcCacheDatas>
 }
 
 func newRpcServerCache() *RpcServerCache {
@@ -162,7 +163,7 @@ func (datas *RpcCacheDatas) removeRemoteResponses(index int, size int) {
 	}
 }
 
-func (datas *RpcCacheDatas) clearExpireDatas(checkTime uint64, expireTime uint64) []*rpcPair {
+func (datas *RpcCacheDatas) clearExpireDatas(checkSeconod uint64, expireSecond uint64) []*rpcPair {
 	remoteSize := len(datas.remoteRpcDatas)
 	localSize := len(datas.localEvents)
 
@@ -170,6 +171,7 @@ func (datas *RpcCacheDatas) clearExpireDatas(checkTime uint64, expireTime uint64
 	if remoteSize > 0 && datas.lastEvent != nil {
 		var preRemoteIndex = -1
 		pairs = make([]*rpcPair, 0)
+		checkTime := uint64(time.Now().UnixNano()) - checkSeconod*1000000000
 		// Mergable response which has no records in several seconds.
 		for i := 0; i < remoteSize; i++ {
 			remoteRpcData := datas.remoteRpcDatas[i]
@@ -187,6 +189,7 @@ func (datas *RpcCacheDatas) clearExpireDatas(checkTime uint64, expireTime uint64
 		datas.removeRemoteResponses(preRemoteIndex, remoteSize)
 	}
 
+	expireTime := uint64(time.Now().UnixNano()) - expireSecond*1000000000
 	if localSize > 0 {
 		var localIndex = -1
 		for i := 0; i < localSize; i++ {
@@ -210,26 +213,23 @@ func (datas *RpcCacheDatas) clearExpireDatas(checkTime uint64, expireTime uint64
 }
 
 type tuppleKey struct {
-	sip   string
-	dip   string
 	sport uint32
+	dip   string
 	dport uint32
 }
 
 func getEventTuppleKey(evt *model.KindlingEvent) tuppleKey {
 	return tuppleKey{
-		sip:   evt.GetSip(),
-		dip:   evt.GetDip(),
 		sport: evt.GetSport(),
+		dip:   evt.GetDip(),
 		dport: evt.GetDport(),
 	}
 }
 
 func getRpcTuppleKey(evt *model.RpcData) tuppleKey {
 	return tuppleKey{
-		sip:   evt.GetSip(),
-		dip:   evt.GetDip(),
 		sport: evt.GetSport(),
+		dip:   evt.GetDip(),
 		dport: evt.GetDport(),
 	}
 }

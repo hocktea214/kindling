@@ -1,10 +1,11 @@
 package model
 
-import "strconv"
+import (
+	"strconv"
+)
 
 func NewRpcData(evt *KindlingEvent, rpcId int64, attributes *AttributeMap) *RpcData {
 	return &RpcData{
-		Sip:       evt.GetSip(),
 		Sport:     evt.GetSport(),
 		Dip:       evt.GetDip(),
 		Dport:     evt.GetDport(),
@@ -53,4 +54,13 @@ func convertRpcAttributes(attributes *AttributeMap) []*RpcAttr {
 		})
 	}
 	return attrs
+}
+
+func NewPodInfo(sip uint32, sport uint32, dport uint32, time uint64) *PodInfo {
+	return &PodInfo{
+		Sip:        sip,
+		Sport:      sport,
+		Dport:      dport,
+		UpdateTime: time,
+	}
 }

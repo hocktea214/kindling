@@ -4,8 +4,10 @@ import (
 	"context"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/Kindling-project/kindling/collector/pkg/component"
+	"github.com/Kindling-project/kindling/collector/pkg/env"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -15,10 +17,13 @@ import (
 var rpcClients *RpcClients = newRpcClients()
 
 type RpcClients struct {
-	rpcClientCache sync.Map // <ip, rpcClientDatas>
-	rpcPort        int
-	rpcCacheSize   int
-	telemetry      *component.TelemetryTools
+	hostIp string
+
+	rpcConnectCache sync.Map // <ip, rpcClientConnect>
+	rpcDatasCache   sync.Map // <podKey, rpcClientDatas>
+	rpcPort         int
+	rpcCacheSize    int
+	telemetry       *component.TelemetryTools
 }
 
 func newRpcClients() *RpcClients {
@@ -35,26 +40,80 @@ func (clients *RpcClients) SetRpcCfg(port int, cacheSize int, telemetry *compone
 	clients.rpcPort = port
 	clients.rpcCacheSize = cacheSize
 	clients.telemetry = telemetry
+
+	hostIp, err := env.GetHostIpFromEnv()
+	if err != nil {
+		telemetry.Logger.Warn("HostIp is not found", zap.Error(err))
+		return
+	}
+	clients.hostIp = hostIp
 }
 
-func (clients *RpcClients) CacheRpcData(rpcData *model.RpcData, ip string) {
+func (clients *RpcClients) CacheRpcData(sip uint32, rpcData *model.RpcData) {
+	podKey := buildPodKey(sip, rpcData.Sport, rpcData.Dport)
 	var client *rpcClientDatas
-	if clientInterface, exist := clients.rpcClientCache.Load(ip); exist {
+	if clientInterface, exist := clients.rpcDatasCache.Load(podKey); exist {
 		client = clientInterface.(*rpcClientDatas)
 	} else {
-		client = clients.newRpcClientDatas(ip)
-		if client == nil {
-			return
+		client = &rpcClientDatas{
+			rpcDataCache:  make([]*model.RpcData, 0),
+			rpcCacheMutex: sync.RWMutex{},
 		}
-		clients.rpcClientCache.Store(ip, client)
+		clients.rpcDatasCache.Store(podKey, client)
 	}
-	client.cacheData(rpcData)
+	client.cacheRpcData(podKey, rpcData)
 }
 
-func (clients *RpcClients) newRpcClientDatas(ip string) *rpcClientDatas {
+func (clients *RpcClients) CachePodInfo(evt *model.KindlingEvent) {
+	clientConnect := clients.getOrCreateConnect(evt.GetDip())
+	if clientConnect != nil {
+		clientConnect.cachePodInfo(evt.Ctx.FdInfo.Sip[0], evt.GetSport(), evt.GetDport())
+	}
+}
+
+func (clients *RpcClients) CacheRemotePodInfos(hostIp string, podInfo *model.PodInfo) {
+	key := getPodKey(podInfo)
+	if clientDatasInterface, exist := clients.rpcDatasCache.Load(key); exist {
+		clientDatas := clientDatasInterface.(*rpcClientDatas)
+		if clientDatas.updateTime < podInfo.UpdateTime {
+			clientDatas.updateTime = podInfo.UpdateTime
+			clientDatas.hostIp = hostIp
+			clients.rpcDatasCache.Store(key, clientDatas)
+		}
+	} else {
+		// New Connect for Rpc Send
+		clients.getOrCreateConnect(hostIp)
+		clients.rpcDatasCache.Store(key, &rpcClientDatas{
+			hostIp:        hostIp,
+			updateTime:    podInfo.UpdateTime,
+			rpcDataCache:  make([]*model.RpcData, 0),
+			rpcCacheMutex: sync.RWMutex{},
+		})
+	}
+}
+
+func (clients *RpcClients) getOrCreateConnect(ip string) *rpcClientConnect {
+	if clientConnectInterface, exist := clients.rpcConnectCache.Load(ip); exist {
+		return clientConnectInterface.(*rpcClientConnect)
+	} else {
+		clientConnect := clients.newRpcClientDatas(ip)
+		if clientConnect != nil {
+			clients.rpcConnectCache.Store(ip, clientConnect)
+		}
+		return clientConnect
+	}
+}
+
+func (clients *RpcClients) newRpcClientDatas(ip string) *rpcClientConnect {
+	if ce := clients.telemetry.Logger.Check(zapcore.InfoLevel, "Create GrpcClient: "); ce != nil {
+		ce.Write(
+			zap.String("ip", ip),
+			zap.Int("port", clients.rpcPort),
+		)
+	}
 	conn, err := grpc.Dial(ip+":"+strconv.Itoa(rpcClients.rpcPort), grpc.WithInsecure())
 	if err != nil {
-		if ce := clients.telemetry.Logger.Check(zapcore.InfoLevel, "Fail to Create GrpcClient: "); ce != nil {
+		if ce := clients.telemetry.Logger.Check(zapcore.WarnLevel, "Fail to Create GrpcClient: "); ce != nil {
 			ce.Write(
 				zap.String("ip", ip),
 				zap.Error(err),
@@ -62,68 +121,167 @@ func (clients *RpcClients) newRpcClientDatas(ip string) *rpcClientDatas {
 		}
 		return nil
 	}
-	return &rpcClientDatas{
-		ip:           ip,
-		client:       model.NewGrpcClient(conn),
-		rpcDataCache: make([]*model.RpcData, 0),
-		cacheMutex:   sync.RWMutex{},
-		sendMutex:    sync.RWMutex{},
+	return &rpcClientConnect{
+		ip:        ip,
+		client:    model.NewGrpcClient(conn),
+		sendMutex: sync.RWMutex{},
 	}
+}
+
+type rpcClientConnect struct {
+	ip              string
+	client          model.GrpcClient
+	podInfoCache    sync.Map // <tuppleKey, time>
+	lastPodSendTime uint64
+	sendMutex       sync.RWMutex
+}
+
+func (clientConnect *rpcClientConnect) cachePodInfo(sip uint32, sport uint32, dport uint32) {
+	if _, exist := clientConnect.podInfoCache.LoadOrStore(buildPodKey(sip, sport, dport), uint64(time.Now().UnixNano())); !exist {
+		now := uint64(time.Now().UnixNano())
+		clientConnect.sendPodInfos([]*model.PodInfo{model.NewPodInfo(sip, sport, dport, now)}, now)
+		if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Send PodInfo: "); ce != nil {
+			ce.Write(
+				zap.String("hostIp", GetRpcClients().hostIp),
+				zap.String("sip", model.IPLong2String(sip)),
+				zap.Uint32("sport", sport),
+				zap.Uint32("dport", dport),
+			)
+		}
+	}
+}
+
+func (clientConnect *rpcClientConnect) checkAndSendPodInfos(sendPeriodSecond uint64, expireSecond uint64) {
+	now := uint64(time.Now().UnixNano())
+	expireTime := now - expireSecond*1000000000
+	clientConnect.podInfoCache.Range(func(key, value interface{}) bool {
+		if value.(uint64) <= expireTime {
+			clientConnect.podInfoCache.Delete(key)
+		}
+		return true
+	})
+
+	lastSendTime := now - sendPeriodSecond*1000000000
+	if clientConnect.lastPodSendTime < lastSendTime {
+		pods := make([]*model.PodInfo, 0)
+		clientConnect.podInfoCache.Range(func(key, value interface{}) bool {
+			podKey := key.(podKey)
+			pods = append(pods, model.NewPodInfo(podKey.podIp, podKey.podPort, podKey.port, now))
+			return true
+		})
+		clientConnect.sendPodInfos(pods, now)
+	}
+}
+
+func (clientConnect *rpcClientConnect) sendPodInfos(pods []*model.PodInfo, now uint64) {
+	podInfos := &model.PodInfos{
+		HostIp:    GetRpcClients().hostIp,
+		Timestamp: now,
+		Pods:      pods,
+	}
+	clientConnect.lastPodSendTime = now
+
+	clientConnect.sendMutex.Lock()
+	clientConnect.client.SendPodInfos(context.Background(), podInfos)
+	clientConnect.sendMutex.Unlock()
 }
 
 type rpcClientDatas struct {
-	ip           string
-	client       model.GrpcClient
-	rpcDataCache []*model.RpcData
-	cacheMutex   sync.RWMutex
-	sendMutex    sync.RWMutex
+	hostIp        string
+	updateTime    uint64
+	rpcDataCache  []*model.RpcData
+	rpcCacheMutex sync.RWMutex
 }
 
-func (clientDatas *rpcClientDatas) cacheData(rpcData *model.RpcData) {
-	clientDatas.cacheMutex.Lock()
+func (clientDatas *rpcClientDatas) cacheRpcData(key podKey, rpcData *model.RpcData) {
+	clientDatas.rpcCacheMutex.Lock()
 	clientDatas.rpcDataCache = append(clientDatas.rpcDataCache, rpcData)
-	clientDatas.cacheMutex.Unlock()
+	clientDatas.rpcCacheMutex.Unlock()
 
 	if len(clientDatas.rpcDataCache) >= rpcClients.rpcCacheSize {
-		clientDatas.sendToCollector()
+		clientDatas.sendRpcDatas(key)
 	}
 }
 
-func (clientDatas *rpcClientDatas) sendToCollector() {
-	// lock to avoid send twice.
-	clientDatas.sendMutex.Lock()
+func (clientDatas *rpcClientDatas) sendRpcDatas(key podKey) {
+	// Check ip is nodeIp
+	var clientConnect *rpcClientConnect
+	if connectInterface, exist := GetRpcClients().rpcConnectCache.Load(model.IPLong2String(key.podIp)); exist {
+		clientConnect = connectInterface.(*rpcClientConnect)
+	} else if clientDatas.hostIp != "" {
+		if connectInterface, exist := GetRpcClients().rpcConnectCache.Load(clientDatas.hostIp); exist {
+			clientConnect = connectInterface.(*rpcClientConnect)
+		}
+	}
+
 	size := len(clientDatas.rpcDataCache)
-	if size > 0 {
-		rpcDatas := &model.RpcDatas{
-			Datas: clientDatas.rpcDataCache[0:size],
-		}
-		if _, err := clientDatas.client.Send(context.Background(), rpcDatas); err != nil {
-			if ce := rpcClients.telemetry.Logger.Check(zapcore.InfoLevel, "Fail to Send Grpc Event: "); ce != nil {
-				ce.Write(
-					zap.String("ip", clientDatas.ip),
-					zap.Int("size", size),
-					zap.Error(err),
-				)
+	if clientConnect != nil {
+		if size > 0 {
+			clientConnect.sendMutex.Lock()
+			rpcDatas := &model.RpcDatas{
+				Datas: clientDatas.rpcDataCache[0:size],
 			}
+			if clientConnect.client != nil {
+				// Send Rpc Data back to client
+				if _, err := clientConnect.client.SendRpcDatas(context.Background(), rpcDatas); err != nil {
+					if ce := rpcClients.telemetry.Logger.Check(zapcore.WarnLevel, "Fail to Send Grpc Event: "); ce != nil {
+						ce.Write(
+							zap.String("sip", clientDatas.hostIp),
+							zap.String("dip", clientConnect.ip),
+							zap.Int("size", size),
+							zap.Error(err),
+						)
+					}
+				}
+			} else {
+				if ce := rpcClients.telemetry.Logger.Check(zapcore.WarnLevel, "Grpc Connect is not build "); ce != nil {
+					ce.Write(
+						zap.String("sip", clientDatas.hostIp),
+						zap.String("dip", clientConnect.ip),
+					)
+				}
+			}
+			clientConnect.sendMutex.Unlock()
 		}
-
-		clientDatas.cacheMutex.Lock()
-		clientDatas.rpcDataCache = clientDatas.rpcDataCache[size:]
-		clientDatas.cacheMutex.Unlock()
 	}
-	clientDatas.sendMutex.Unlock()
+
+	if size > 0 {
+		// Skip datas when connect is not build.
+		clientDatas.rpcCacheMutex.Lock()
+		clientDatas.rpcDataCache = clientDatas.rpcDataCache[size:]
+		clientDatas.rpcCacheMutex.Unlock()
+	}
 }
 
-func (clientDatas *rpcClientDatas) checkAndSend(checkTime uint64) {
+func (clientDatas *rpcClientDatas) checkAndSendRpcDatas(key podKey, checkSecond uint64) {
 	dataSize := len(clientDatas.rpcDataCache)
 	if dataSize == 0 {
 		return
 	}
-	clientDatas.cacheMutex.RLock()
 	firstTime := clientDatas.rpcDataCache[0].Timestamp
-	clientDatas.cacheMutex.RUnlock()
+	if firstTime+checkSecond*1000000000 <= uint64(time.Now().UnixNano()) {
+		clientDatas.sendRpcDatas(key)
+	}
+}
 
-	if firstTime <= checkTime {
-		clientDatas.sendToCollector()
+type podKey struct {
+	podIp   uint32
+	podPort uint32
+	port    uint32
+}
+
+func buildPodKey(podIp uint32, podPort uint32, port uint32) podKey {
+	return podKey{
+		podIp:   podIp,
+		podPort: podPort,
+		port:    port,
+	}
+}
+
+func getPodKey(podInfo *model.PodInfo) podKey {
+	return podKey{
+		podIp:   podInfo.Sip,
+		podPort: podInfo.Sport,
+		port:    podInfo.Dport,
 	}
 }

@@ -5,8 +5,25 @@ option go_package = "model/model";
 
 // The Grpc service definition.
 service Grpc {
-    // Sends a grpc call with json
-    rpc Send (RpcDatas) returns (RpcReply) {}
+    rpc SendRpcDatas (RpcDatas) returns (RpcReply) {}
+    rpc SendPodInfos (PodInfos) returns (PodReply) {}
+}
+
+message PodInfos {
+    string host_ip = 1;
+    uint64 timestamp = 2;
+    repeated PodInfo pods = 3;
+}
+
+message PodInfo {
+    uint32 sip = 1;
+    uint32 sport = 2;
+    uint32 dport = 3;
+    uint64 update_time = 4;
+}
+
+message PodReply {
+    string result = 1;
 }
 
 message RpcReply {
@@ -18,14 +35,13 @@ message RpcDatas {
 }
 
 message RpcData {
-    string sip = 1;
-    uint32 sport = 2;
-    string dip = 3;
-    uint32 dport = 4;
-    uint64 timestamp = 5;
-    int64 rpc_id = 6;
-    int64 size = 7;
-    repeated RpcAttr attrs = 8;
+    uint32 sport = 1;
+    string dip = 2;
+    uint32 dport = 3;
+    uint64 timestamp = 4;
+    int64 rpc_id = 5;
+    int64 size = 6;
+    repeated RpcAttr attrs = 7;
 }
 
 message RpcAttr {

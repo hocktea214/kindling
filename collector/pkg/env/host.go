@@ -1,15 +1,15 @@
-package k8sprocessor
+package env
 
 import (
 	"fmt"
 	"os"
 )
 
-func getHostIpFromEnv() (string, error) {
+func GetHostIpFromEnv() (string, error) {
 	return getValueFromEnv("MY_NODE_IP", "unknown")
 }
 
-func getHostNameFromEnv() (string, error) {
+func GetHostNameFromEnv() (string, error) {
 	return getValueFromEnv("MY_NODE_NAME", "unknown")
 }
 
