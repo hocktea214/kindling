@@ -4,10 +4,15 @@ import (
 	"strconv"
 )
 
-func NewRpcData(evt *KindlingEvent, rpcId int64, attributes *AttributeMap) *RpcData {
+func NewRpcData(evt *KindlingEvent, rpcId int64, hostIp string, attributes *AttributeMap) *RpcData {
+	// Replace DstIp with hostIp
+	dstIp := hostIp
+	if dstIp == "" {
+		dstIp = evt.GetDip()
+	}
 	return &RpcData{
 		Sport:     evt.GetSport(),
-		Dip:       evt.GetDip(),
+		Dip:       dstIp,
 		Dport:     evt.GetDport(),
 		Timestamp: evt.Timestamp,
 		RpcId:     rpcId,

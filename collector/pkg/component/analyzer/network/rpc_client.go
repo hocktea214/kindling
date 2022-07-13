@@ -96,7 +96,7 @@ func (clients *RpcClients) getOrCreateConnect(ip string) *rpcClientConnect {
 	if clientConnectInterface, exist := clients.rpcConnectCache.Load(ip); exist {
 		return clientConnectInterface.(*rpcClientConnect)
 	} else {
-		clientConnect := clients.newRpcClientDatas(ip)
+		clientConnect := clients.newRpcClientConnect(ip)
 		if clientConnect != nil {
 			clients.rpcConnectCache.Store(ip, clientConnect)
 		}
@@ -104,7 +104,16 @@ func (clients *RpcClients) getOrCreateConnect(ip string) *rpcClientConnect {
 	}
 }
 
-func (clients *RpcClients) newRpcClientDatas(ip string) *rpcClientConnect {
+func (clients *RpcClients) newRpcClientConnect(ip string) *rpcClientConnect {
+	if ip == clients.hostIp {
+		// Use local datas
+		return &rpcClientConnect{
+			ip:        ip,
+			isRemote:  false,
+			client:    &localClient{},
+			sendMutex: sync.RWMutex{},
+		}
+	}
 	if ce := clients.telemetry.Logger.Check(zapcore.InfoLevel, "Create GrpcClient: "); ce != nil {
 		ce.Write(
 			zap.String("ip", ip),
@@ -123,6 +132,7 @@ func (clients *RpcClients) newRpcClientDatas(ip string) *rpcClientConnect {
 	}
 	return &rpcClientConnect{
 		ip:        ip,
+		isRemote:  true,
 		client:    model.NewGrpcClient(conn),
 		sendMutex: sync.RWMutex{},
 	}
@@ -130,6 +140,7 @@ func (clients *RpcClients) newRpcClientDatas(ip string) *rpcClientConnect {
 
 type rpcClientConnect struct {
 	ip              string
+	isRemote        bool
 	client          model.GrpcClient
 	podInfoCache    sync.Map // <tuppleKey, time>
 	lastPodSendTime uint64
@@ -137,16 +148,22 @@ type rpcClientConnect struct {
 }
 
 func (clientConnect *rpcClientConnect) cachePodInfo(sip uint32, sport uint32, dport uint32) {
-	if _, exist := clientConnect.podInfoCache.LoadOrStore(buildPodKey(sip, sport, dport), uint64(time.Now().UnixNano())); !exist {
-		now := uint64(time.Now().UnixNano())
-		clientConnect.sendPodInfos([]*model.PodInfo{model.NewPodInfo(sip, sport, dport, now)}, now)
-		if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Send PodInfo: "); ce != nil {
-			ce.Write(
-				zap.String("hostIp", GetRpcClients().hostIp),
-				zap.String("sip", model.IPLong2String(sip)),
-				zap.Uint32("sport", sport),
-				zap.Uint32("dport", dport),
-			)
+	key := buildPodKey(sip, sport, dport)
+	now := uint64(time.Now().UnixNano())
+
+	if clientConnect.isRemote {
+		if _, exist := clientConnect.podInfoCache.LoadOrStore(key, now); !exist {
+			now := uint64(time.Now().UnixNano())
+			clientConnect.sendPodInfos([]*model.PodInfo{model.NewPodInfo(sip, sport, dport, now)}, now)
+		}
+	} else {
+		if _, exist := rpcClients.rpcDatasCache.Load(key); !exist {
+			rpcClients.rpcDatasCache.Store(key, &rpcClientDatas{
+				hostIp:        clientConnect.ip,
+				updateTime:    now,
+				rpcDataCache:  make([]*model.RpcData, 0),
+				rpcCacheMutex: sync.RWMutex{},
+			})
 		}
 	}
 }
@@ -284,4 +301,21 @@ func getPodKey(podInfo *model.PodInfo) podKey {
 		podPort: podInfo.Sport,
 		port:    podInfo.Dport,
 	}
+}
+
+type localClient struct {
+}
+
+func (c *localClient) SendRpcDatas(ctx context.Context, in *model.RpcDatas, opts ...grpc.CallOption) (*model.RpcReply, error) {
+	recvTime := uint64(time.Now().UnixNano())
+	for _, data := range in.Datas {
+		// Set Client Time for expire check.
+		data.Timestamp = recvTime
+		GetRpcServer().cacheRemoteRpcData(data)
+	}
+	return &model.RpcReply{Result: ""}, nil
+}
+
+func (c *localClient) SendPodInfos(ctx context.Context, in *model.PodInfos, opts ...grpc.CallOption) (*model.PodReply, error) {
+	return nil, nil
 }

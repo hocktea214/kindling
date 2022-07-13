@@ -187,7 +187,7 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 			if isServer && !isRequest {
 				respMsg := protocol.NewResponseMessage(evt.GetData(), model.NewAttributeMap())
 				if na.dubboParser.ParseResponse(respMsg) {
-					rpcData := model.NewRpcData(evt, rpcId, respMsg.GetAttributes())
+					rpcData := model.NewRpcData(evt, rpcId, GetRpcClients().hostIp, respMsg.GetAttributes())
 					GetRpcClients().CacheRpcData(evt.Ctx.FdInfo.Sip[0], rpcData)
 				}
 			} else if !isServer {
