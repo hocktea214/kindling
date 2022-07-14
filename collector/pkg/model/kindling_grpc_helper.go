@@ -4,7 +4,7 @@ import (
 	"strconv"
 )
 
-func NewRpcData(evt *KindlingEvent, rpcId int64, hostIp string, attributes *AttributeMap) *RpcData {
+func NewRpcData(evt *KindlingEvent, rpcId int64, hostIp string, port uint32, attributes *AttributeMap) *RpcData {
 	// Replace DstIp with hostIp
 	dstIp := hostIp
 	if dstIp == "" {
@@ -13,7 +13,7 @@ func NewRpcData(evt *KindlingEvent, rpcId int64, hostIp string, attributes *Attr
 	return &RpcData{
 		Sport:     evt.GetSport(),
 		Dip:       dstIp,
-		Dport:     evt.GetDport(),
+		Dport:     port,
 		Timestamp: evt.Timestamp,
 		RpcId:     rpcId,
 		Attrs:     convertRpcAttributes(attributes),
