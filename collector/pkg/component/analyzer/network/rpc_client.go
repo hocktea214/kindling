@@ -223,9 +223,10 @@ func (clientDatas *rpcClientDatas) cacheRpcData(key podKey, rpcData *model.RpcDa
 func (clientDatas *rpcClientDatas) sendRpcDatas(key podKey) {
 	// Check ip is nodeIp
 	var clientConnect *rpcClientConnect
-	if connectInterface, exist := GetRpcClients().rpcConnectCache.Load(model.IPLong2String(key.podIp)); exist {
+	localIp := model.IPLong2String(key.podIp)
+	if connectInterface, exist := GetRpcClients().rpcConnectCache.Load(localIp); exist {
 		clientConnect = connectInterface.(*rpcClientConnect)
-	} else if clientDatas.hostIp != "" {
+	} else if clientDatas.hostIp != "" && clientDatas.hostIp != localIp {
 		if connectInterface, exist := GetRpcClients().rpcConnectCache.Load(clientDatas.hostIp); exist {
 			clientConnect = connectInterface.(*rpcClientConnect)
 		}

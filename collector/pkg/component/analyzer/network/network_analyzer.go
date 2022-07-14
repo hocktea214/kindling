@@ -116,10 +116,11 @@ func (na *NetworkAnalyzer) Start() error {
 			na.protocolMap[protocolName] = protocolparser
 			disableDisern, ok := disableDisernProtocols[protocolName]
 			if !ok || !disableDisern {
-				parsers = append(parsers, protocolparser)
 				if protocolName == protocol.DUBBO {
 					na.dubboParser = protocolparser
 					StartRpcReceiver(na)
+				} else {
+					parsers = append(parsers, protocolparser)
 				}
 			}
 		}
@@ -183,23 +184,24 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 
 	if na.dubboParser != nil {
 		if rpcId, ok := na.dubboParser.GetUniqueId(evt.GetData()); ok {
-			isServer := evt.Ctx.FdInfo.Role
-			if isServer && !isRequest {
-				respMsg := protocol.NewResponseMessage(evt.GetData(), model.NewAttributeMap())
-				if na.dubboParser.ParseResponse(respMsg) {
-					// TODO Replace port by k8s cache API (evt.GetDip(), evt.GetDport())
-					port := evt.GetDport()
-					rpcData := model.NewRpcData(evt, rpcId, GetRpcClients().hostIp, port, respMsg.GetAttributes())
-					GetRpcClients().CacheRpcData(evt.Ctx.FdInfo.Sip[0], rpcData)
+			isServer := fd.Role
+			if isServer {
+				if !isRequest {
+					respMsg := protocol.NewResponseMessage(evt.GetData(), model.NewAttributeMap())
+					if na.dubboParser.ParseResponse(respMsg) {
+						// TODO Replace port by k8s cache API (evt.GetDip(), evt.GetDport())
+						port := evt.GetDport()
+						rpcData := model.NewRpcData(evt, rpcId, GetRpcClients().hostIp, port, respMsg.GetAttributes())
+						GetRpcClients().CacheRpcData(fd.Sip[0], rpcData)
+					}
 				}
-			} else if !isServer {
+			} else {
 				if isRequest {
 					// client -> server
 					GetRpcClients().CachePodInfo(evt)
 					GetRpcServer().cacheEvent(rpcId, evt)
 				} else {
-					evt.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, rpcId)
-					GetRpcServer().cacheLocalEvent(evt)
+					GetRpcServer().cacheLocalEvent(rpcId, evt)
 				}
 			}
 			return nil

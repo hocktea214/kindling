@@ -39,7 +39,8 @@ func (cache *RpcServerCache) cacheEvent(id int64, event *model.KindlingEvent) {
 	cache.getOrCreateCacheDatas(getEventTuppleKey(event)).addEvent(id, event)
 }
 
-func (cache *RpcServerCache) cacheLocalEvent(event *model.KindlingEvent) {
+func (cache *RpcServerCache) cacheLocalEvent(id int64, event *model.KindlingEvent) {
+	event.AddIntUserAttribute(ATTRIBUTE_KEY_RPC_ID, id)
 	cache.getOrCreateCacheDatas(getEventTuppleKey(event)).addLocal(event)
 }
 

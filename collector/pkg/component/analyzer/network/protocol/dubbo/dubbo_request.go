@@ -18,16 +18,10 @@ func parseDubboRequest() protocol.ParsePkgFn {
 			return false, true
 		}
 
-		message.AddIntAttribute(constlabels.DubboRpcId, getDubboRpcId(message))
 		message.AddStringAttribute(constlabels.ContentKey, contentKey)
 		message.AddStringAttribute(constlabels.DubboRequestPayload, getAsciiString(message.GetData(16, protocol.GetDubboPayLoadLength())))
 		return true, true
 	}
-}
-
-func getDubboRpcId(message *protocol.PayloadMessage) int64 {
-	return int64(uint64(message.Data[4])<<56 | uint64(message.Data[5])<<48 | uint64(message.Data[6])<<40 | uint64(message.Data[7])<<32 |
-		uint64(message.Data[8])<<24 | uint64(message.Data[9])<<16 | uint64(message.Data[10])<<8 | uint64(message.Data[11]))
 }
 
 func getContentKey(requestData []byte) string {

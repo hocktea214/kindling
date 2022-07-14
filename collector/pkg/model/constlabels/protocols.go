@@ -28,7 +28,6 @@ const (
 	KafkaPartition     = "kafka_partition"
 	KafkaErrorCode     = "kafka_error_code"
 
-	DubboRpcId           = "dubbo_rpc_id"
 	DubboRequestPayload  = "request_payload"
 	DubboResponsePayload = "response_payload"
 	DubboErrorCode       = "dubbo_error_code"

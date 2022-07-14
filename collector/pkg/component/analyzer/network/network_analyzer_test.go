@@ -10,6 +10,7 @@ import (
 
 	"github.com/Kindling-project/kindling/collector/pkg/component"
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer"
+	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 	"github.com/spf13/viper"
@@ -63,7 +64,7 @@ func (n NopProcessor) Consume(dataGroup *model.DataGroup) error {
 	return nil
 }
 
-var na analyzer.Analyzer
+var na *NetworkAnalyzer
 
 func prepareNetworkAnalyzer() analyzer.Analyzer {
 	if na == nil {
@@ -77,8 +78,10 @@ func prepareNetworkAnalyzer() analyzer.Analyzer {
 		}
 		viper.UnmarshalKey("analyzers.networkanalyzer", config)
 
-		na = NewNetworkAnalyzer(config, component.NewDefaultTelemetryTools(), []consumer.Consumer{&NopProcessor{}})
+		na = NewNetworkAnalyzer(config, component.NewDefaultTelemetryTools(), []consumer.Consumer{&NopProcessor{}}).(*NetworkAnalyzer)
 		na.Start()
+
+		na.parsers = append(na.parsers[0:len(na.parsers)-1], na.protocolMap[protocol.DUBBO], na.parsers[len(na.parsers)-1])
 	}
 	return na
 }
