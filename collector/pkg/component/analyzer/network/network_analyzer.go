@@ -365,7 +365,7 @@ func (na *NetworkAnalyzer) parseRpcAndDistributeTraceMetric(pairs []*rpcPair) er
 
 func (na *NetworkAnalyzer) distributeDataGroups(records []*model.DataGroup) error {
 	for _, record := range records {
-		if ce := na.telemetry.Logger.Check(zapcore.DebugLevel, "NetworkAnalyzer To NextProcess: "); ce != nil {
+		if ce := na.telemetry.Logger.Check(zapcore.InfoLevel, "NetworkAnalyzer To NextProcess: "); ce != nil {
 			ce.Write(
 				zap.String("record", record.String()),
 			)
