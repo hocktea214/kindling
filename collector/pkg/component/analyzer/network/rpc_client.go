@@ -80,9 +80,31 @@ func (clients *RpcClients) CacheRemotePodInfos(hostIp string, podInfo *model.Pod
 			clientDatas.hostIp = hostIp
 			clients.rpcDatasCache.Store(key, clientDatas)
 		}
+
+		if ce := clients.telemetry.Logger.Check(zapcore.InfoLevel, "Using exist Connect: "); ce != nil {
+			ce.Write(
+				zap.String("ip", hostIp),
+				zap.String("podId", model.IPLong2String(podInfo.Sip)),
+				zap.Uint32("podPort", podInfo.Sport),
+				zap.Uint32("port", podInfo.Dport),
+				zap.Uint64("existTime", podInfo.UpdateTime),
+				zap.Uint64("updateTime", podInfo.UpdateTime),
+				zap.Bool("update", clientDatas.updateTime < podInfo.UpdateTime),
+			)
+		}
 	} else {
 		// New Connect for Rpc Send
 		clients.getOrCreateConnect(hostIp)
+
+		if ce := clients.telemetry.Logger.Check(zapcore.InfoLevel, "Create Rpc Connect: "); ce != nil {
+			ce.Write(
+				zap.String("ip", hostIp),
+				zap.String("podId", model.IPLong2String(podInfo.Sip)),
+				zap.Uint32("podPort", podInfo.Sport),
+				zap.Uint32("port", podInfo.Dport),
+			)
+		}
+
 		clients.rpcDatasCache.Store(key, &rpcClientDatas{
 			hostIp:        hostIp,
 			updateTime:    podInfo.UpdateTime,
@@ -155,6 +177,14 @@ func (clientConnect *rpcClientConnect) cachePodInfo(sip uint32, sport uint32, dp
 		if _, exist := clientConnect.podInfoCache.LoadOrStore(key, now); !exist {
 			now := uint64(time.Now().UnixNano())
 			clientConnect.sendPodInfos([]*model.PodInfo{model.NewPodInfo(sip, sport, dport, now)}, now)
+			if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Send PodInfo: "); ce != nil {
+				ce.Write(
+					zap.String("hostIp", GetRpcClients().hostIp),
+					zap.String("sip", model.IPLong2String(sip)),
+					zap.Uint32("sport", sport),
+					zap.Uint32("dport", dport),
+				)
+			}
 		}
 	} else {
 		if _, exist := rpcClients.rpcDatasCache.Load(key); !exist {
@@ -184,6 +214,15 @@ func (clientConnect *rpcClientConnect) checkAndSendPodInfos(sendPeriodSecond uin
 		clientConnect.podInfoCache.Range(func(key, value interface{}) bool {
 			podKey := key.(podKey)
 			pods = append(pods, model.NewPodInfo(podKey.podIp, podKey.podPort, podKey.port, now))
+
+			if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Sending Pod Info: "); ce != nil {
+				ce.Write(
+					zap.String("ip", clientConnect.ip),
+					zap.String("podIp", model.IPLong2String(podKey.podIp)),
+					zap.Uint32("podPort", podKey.podPort),
+					zap.Uint32("port", podKey.port),
+				)
+			}
 			return true
 		})
 		clientConnect.sendPodInfos(pods, now)
@@ -229,6 +268,15 @@ func (clientDatas *rpcClientDatas) sendRpcDatas(key podKey) {
 		if connectInterface, exist := GetRpcClients().rpcConnectCache.Load(clientDatas.hostIp); exist {
 			clientConnect = connectInterface.(*rpcClientConnect)
 		}
+	} else {
+		if ce := rpcClients.telemetry.Logger.Check(zapcore.InfoLevel, "Host Ip Not Set "); ce != nil {
+			ce.Write(
+				zap.String("hostIp", clientDatas.hostIp),
+				zap.String("podIp", model.IPLong2String(key.podIp)),
+				zap.Uint32("podPort", key.podPort),
+				zap.Uint32("port", key.port),
+			)
+		}
 	}
 
 	size := len(clientDatas.rpcDataCache)
@@ -239,6 +287,14 @@ func (clientDatas *rpcClientDatas) sendRpcDatas(key podKey) {
 				Datas: clientDatas.rpcDataCache[0:size],
 			}
 			if clientConnect.client != nil {
+				if ce := rpcClients.telemetry.Logger.Check(zapcore.InfoLevel, "Sending Rpc Event... "); ce != nil {
+					ce.Write(
+						zap.String("sip", clientDatas.hostIp),
+						zap.String("dip", clientConnect.ip),
+						zap.Int("size", size),
+					)
+				}
+
 				// Send Rpc Data back to client
 				if _, err := clientConnect.client.SendRpcDatas(context.Background(), rpcDatas); err != nil {
 					if ce := rpcClients.telemetry.Logger.Check(zapcore.WarnLevel, "Fail to Send Grpc Event: "); ce != nil {
@@ -311,6 +367,15 @@ func (c *localClient) SendRpcDatas(ctx context.Context, in *model.RpcDatas, opts
 	for _, data := range in.Datas {
 		// Set Client Time for expire check.
 		data.Timestamp = recvTime
+
+		if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Receive Local Rpc Event: "); ce != nil {
+			ce.Write(
+				zap.Uint32("sport", data.Sport),
+				zap.String("dip", data.Dip),
+				zap.Uint32("dport", data.Dport),
+				zap.Int64("rpcId", data.RpcId),
+			)
+		}
 		GetRpcServer().cacheRemoteRpcData(data)
 	}
 	return &model.RpcReply{Result: ""}, nil

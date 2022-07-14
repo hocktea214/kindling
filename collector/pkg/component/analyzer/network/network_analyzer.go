@@ -184,6 +184,16 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 	if na.dubboParser != nil {
 		if rpcId, ok := na.dubboParser.GetUniqueId(evt.GetData()); ok {
 			isServer := evt.Ctx.FdInfo.Role
+			if ce := na.telemetry.Logger.Check(zapcore.InfoLevel, "Receive Dubbo Event: "); ce != nil {
+				ce.Write(
+					zap.String("sip", evt.GetSip()),
+					zap.Uint32("sport", evt.GetSport()),
+					zap.String("dip", evt.GetDip()),
+					zap.Uint32("dport", evt.GetDport()),
+					zap.Bool("Server", isServer),
+					zap.Bool("Request", isRequest),
+				)
+			}
 			if isServer && !isRequest {
 				respMsg := protocol.NewResponseMessage(evt.GetData(), model.NewAttributeMap())
 				if na.dubboParser.ParseResponse(respMsg) {

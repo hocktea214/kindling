@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"strconv"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/component"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 )
 
@@ -41,11 +43,21 @@ func consumerAndCheckRpcDatas(na *NetworkAnalyzer) {
 				rpcCacheDatas := v.(*RpcCacheDatas)
 				pairs := rpcCacheDatas.match()
 				if len(pairs) > 0 {
+					if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Matched Dubbo Events: "); ce != nil {
+						ce.Write(
+							zap.Int("size", len(pairs)),
+						)
+					}
 					na.parseRpcAndDistributeTraceMetric(pairs)
 				}
 				// Expire 15s, check 1s
 				pairs = rpcCacheDatas.clearExpireDatas(1, 15)
 				if len(pairs) > 0 {
+					if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Checked Match Dubbo Events: "); ce != nil {
+						ce.Write(
+							zap.Int("size", len(pairs)),
+						)
+					}
 					na.parseRpcAndDistributeTraceMetric(pairs)
 				}
 				return true
@@ -75,6 +87,13 @@ func (server *collectorGrpcServer) SendRpcDatas(ctx context.Context, in *model.R
 	for _, data := range in.Datas {
 		// Set Client Time for expire check.
 		data.Timestamp = recvTime
+
+		eventJson, _ := json.Marshal(&data)
+		if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Receive Rpc Event: "); ce != nil {
+			ce.Write(
+				zap.String("event", string(eventJson)),
+			)
+		}
 		GetRpcServer().cacheRemoteRpcData(data)
 	}
 
@@ -86,6 +105,15 @@ func (server *collectorGrpcServer) SendPodInfos(ctx context.Context, in *model.P
 	for _, pod := range in.Pods {
 		// Set UpdateTime as Client Time
 		pod.UpdateTime = recvTime - (in.Timestamp - pod.UpdateTime)
+		if ce := GetRpcClients().telemetry.Logger.Check(zapcore.InfoLevel, "Receive Pod Info: "); ce != nil {
+			ce.Write(
+				zap.String("hostIp", in.HostIp),
+				zap.String("sip", model.IPLong2String(pod.Sip)),
+				zap.Uint32("sport", pod.Sport),
+				zap.Uint32("dport", pod.Dport),
+				zap.Uint64("UpdateTime", pod.UpdateTime),
+			)
+		}
 		GetRpcClients().CacheRemotePodInfos(in.HostIp, pod)
 	}
 
