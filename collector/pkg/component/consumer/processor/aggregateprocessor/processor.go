@@ -8,12 +8,14 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/aggregator/defaultaggregator"
 	"github.com/Kindling-project/kindling/collector/pkg/component"
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/cpuanalyzer"
+	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/traceanalyzer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer/processor"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 	"github.com/Kindling-project/kindling/collector/pkg/model/constlabels"
 	"github.com/Kindling-project/kindling/collector/pkg/model/constnames"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const Type = "aggregateprocessor"
@@ -116,7 +118,8 @@ func (p *AggregateProcessor) Consume(dataGroup *model.DataGroup) error {
 		// The abnormal recordersMap will be treated as trace in later processing.
 		// Must trace be merged into metrics in this place? Yes, because we have to generate histogram metrics,
 		// trace recordersMap should not be recorded again, otherwise the percentiles will be much higher.
-		if p.isSampled(dataGroup) {
+		pid := dataGroup.Labels.GetIntValue("pid")
+		if !traceanalyzer.IsTracePid(uint32(pid)) && p.isSampled(dataGroup) {
 			dataGroup.Name = constnames.SingleNetRequestMetricGroup
 			cpuanalyzer.ReceiveDataGroupAsSignal(dataGroup)
 			abnormalDataErr = p.nextConsumer.Consume(dataGroup)
@@ -124,6 +127,13 @@ func (p *AggregateProcessor) Consume(dataGroup *model.DataGroup) error {
 		dataGroup.Name = constnames.AggregatedNetRequestMetricGroup
 		p.aggregator.Aggregate(dataGroup, p.netRequestLabelSelectors)
 		return abnormalDataErr
+	case constnames.TraceMetricGroupName:
+		if p.isSampled(dataGroup) {
+			dataGroup.Name = constnames.SingleNetRequestMetricGroup
+			cpuanalyzer.ReceiveDataGroupAsSignal(dataGroup)
+			return p.nextConsumer.Consume(dataGroup)
+		}
+		return nil
 	case constnames.TcpMetricGroupName:
 		p.aggregator.Aggregate(dataGroup, p.tcpLabelSelectors)
 		return nil

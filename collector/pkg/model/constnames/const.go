@@ -37,4 +37,5 @@ const (
 	TcpMetricGroupName        = "tcp_metric_metric_group"
 	NodeMetricGroupName       = "node_metric_metric_group"
 	TcpConnectMetricGroupName = "tcp_connect_metric_group"
+	TraceMetricGroupName      = "trace_metric_group"
 )

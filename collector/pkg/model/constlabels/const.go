@@ -109,6 +109,9 @@ const (
 	SpanRedisRequestPayload  = "redis.request_payload"
 	SpanRedisResponsePayload = "redis.request_payload"
 
+	SpanTraceId         = "trace_id"
+	SpanTraceType       = "trace_type"
+
 	NetWorkAnalyzeMetricGroup = "netAnalyzeMetrics"
 
 	// IsSent is used by cpuAnalyzer to label whether an event has been sent.

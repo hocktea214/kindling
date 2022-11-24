@@ -11,6 +11,7 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network"
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/tcpconnectanalyzer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/tcpmetricanalyzer"
+	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/traceanalyzer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer/exporter/cameraexporter"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer/exporter/logexporter"
@@ -89,6 +90,7 @@ func (a *Application) registerFactory() {
 	a.componentsFactory.RegisterProcessor(aggregateprocessor.Type, aggregateprocessor.New, aggregateprocessor.NewDefaultConfig())
 	a.componentsFactory.RegisterAnalyzer(tcpconnectanalyzer.Type.String(), tcpconnectanalyzer.New, tcpconnectanalyzer.NewDefaultConfig())
 	a.componentsFactory.RegisterExporter(cameraexporter.Type, cameraexporter.New, cameraexporter.NewDefaultConfig())
+	a.componentsFactory.RegisterAnalyzer(traceanalyzer.Trace.String(), traceanalyzer.NewTraceAnalyzer, &traceanalyzer.Config{})
 }
 
 func (a *Application) readInConfig(path string) error {
@@ -138,8 +140,11 @@ func (a *Application) buildPipeline() error {
 	cpuAnalyzerFactory := a.componentsFactory.Analyzers[cpuanalyzer.CpuProfile.String()]
 	cpuAnalyzer := cpuAnalyzerFactory.NewFunc(cpuAnalyzerFactory.Config, a.telemetry.GetTelemetryTools(cpuanalyzer.CpuProfile.String()), []consumer.Consumer{cameraExporter})
 
+	traceAnalyzerFactory := a.componentsFactory.Analyzers[traceanalyzer.Trace.String()]
+	traceAnalyzer := traceAnalyzerFactory.NewFunc(traceAnalyzerFactory.Config, a.telemetry.GetTelemetryTools(traceanalyzer.Trace.String()), []consumer.Consumer{k8sMetadataProcessor})
+
 	// Initialize receiver packaged with multiple analyzers
-	analyzerManager, err := analyzer.NewManager(networkAnalyzer, tcpAnalyzer, tcpConnectAnalyzer, cpuAnalyzer)
+	analyzerManager, err := analyzer.NewManager(networkAnalyzer, tcpAnalyzer, tcpConnectAnalyzer, cpuAnalyzer, traceAnalyzer)
 	if err != nil {
 		return fmt.Errorf("error happened while creating analyzer manager: %w", err)
 	}

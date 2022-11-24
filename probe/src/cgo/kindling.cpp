@@ -32,6 +32,8 @@ int64_t debug_pid = 0;
 int64_t debug_tid = 0;
 char *traceId = new char[128];
 char *isEnter = new char[16];
+char *protocol = new char[128];
+char *endPoint = new char[256];
 char *start_time_char = new char[32];
 char *end_time_char = new char[32];
 char *tid_char = new char[32];
@@ -465,6 +467,8 @@ void parse_xtid(sinsp_evt *s_evt, char *data_val, sinsp_evt_param data_param, ki
     int val_offset = 0;
     int tmp_offset = 0;
     int traceId_offset = 0;
+    int protocol_offset = 0;
+    int endpoint_offset = 0;
     for (int i = 8; i < data_param.m_len; i++) {
         if (data_val[i] == '!') {
             if (val_offset == 0) {
@@ -472,6 +476,12 @@ void parse_xtid(sinsp_evt *s_evt, char *data_val, sinsp_evt_param data_param, ki
                 traceId_offset = tmp_offset;
             }else if (val_offset == 1) {
                 isEnter[tmp_offset] = '\0';
+            } else if (val_offset == 2) {
+                protocol[tmp_offset] = '\0';
+                protocol_offset = tmp_offset;
+            } else if (val_offset == 3) {
+                endPoint[tmp_offset] = '\0';
+                endpoint_offset = tmp_offset;
                 break;
             }
             tmp_offset = 0;
@@ -484,6 +494,10 @@ void parse_xtid(sinsp_evt *s_evt, char *data_val, sinsp_evt_param data_param, ki
         }else if (val_offset == 1) {
 
             isEnter[tmp_offset] = data_val[i];
+        } else if (val_offset == 2) {
+            protocol[tmp_offset] = data_val[i];
+        } else if (val_offset == 3) {
+            endPoint[tmp_offset] = data_val[i];
         }
         tmp_offset++;
     }
@@ -500,6 +514,20 @@ void parse_xtid(sinsp_evt *s_evt, char *data_val, sinsp_evt_param data_param, ki
     p_kindling_event->userAttributes[userAttNumber].valueType = CHARBUF;
     p_kindling_event->userAttributes[userAttNumber].len = 1;
     userAttNumber++;
+
+    if (endpoint_offset > 0) {
+        strcpy(p_kindling_event->userAttributes[userAttNumber].key, "protocol");
+        memcpy(p_kindling_event->userAttributes[userAttNumber].value, protocol, protocol_offset);
+        p_kindling_event->userAttributes[userAttNumber].valueType = CHARBUF;
+        p_kindling_event->userAttributes[userAttNumber].len = protocol_offset;
+        userAttNumber++;
+
+        strcpy(p_kindling_event->userAttributes[userAttNumber].key, "endpoint");
+        memcpy(p_kindling_event->userAttributes[userAttNumber].value, endPoint, endpoint_offset);
+        p_kindling_event->userAttributes[userAttNumber].valueType = CHARBUF;
+        p_kindling_event->userAttributes[userAttNumber].len = endpoint_offset;
+        userAttNumber++;
+    }
     strcpy(p_kindling_event->name, "apm_trace_id_event");
     p_kindling_event->context.tinfo.tid = threadInfo->m_tid;
     map<uint64_t, char*>::iterator key = ptid_comm.find(threadInfo->m_pid<<32 | (threadInfo->m_tid & 0xFFFFFFFF));

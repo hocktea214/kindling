@@ -34,6 +34,8 @@ receivers:
 analyzers:
   cpuanalyzer:
     segment_size: 40
+  traceanalyzer:
+    slow_threshold: 500
   tcpconnectanalyzer:
     channel_size: 10000
     wait_event_second: 10
