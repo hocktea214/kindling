@@ -15,7 +15,6 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/model/constlabels"
 	"github.com/Kindling-project/kindling/collector/pkg/model/constnames"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 const Type = "aggregateprocessor"
