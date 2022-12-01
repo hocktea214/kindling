@@ -21,6 +21,7 @@ const (
 	CpuEvent           = "cpu_event"
 	JavaFutexInfo      = "java_futex_info"
 	TransactionIdEvent = "apm_trace_id_event"
+	JavaSpanInfo       = "java_span_info"
 	OtherEvent         = "other"
 
 	ProcessExitEvent = "procexit"

@@ -33,7 +33,7 @@ func (ca *CpuAnalyzer) Type() analyzer.Type {
 }
 
 func (ca *CpuAnalyzer) ConsumableEvents() []string {
-	return []string{constnames.CpuEvent, constnames.JavaFutexInfo, constnames.TransactionIdEvent, constnames.ProcessExitEvent}
+	return []string{constnames.CpuEvent, constnames.JavaFutexInfo, constnames.TransactionIdEvent, constnames.ProcessExitEvent, constnames.JavaSpanInfo}
 }
 
 func NewCpuAnalyzer(cfg interface{}, telemetry *component.TelemetryTools, consumers []consumer.Consumer) analyzer.Analyzer {
@@ -72,6 +72,8 @@ func (ca *CpuAnalyzer) ConsumeEvent(event *model.KindlingEvent) error {
 		pid := event.GetPid()
 		tid := event.Ctx.ThreadInfo.GetTid()
 		ca.trimExitedThread(pid, tid)
+	case constnames.JavaSpanInfo:
+		ca.ConsumeJavaSpanEvent(event)
 	}
 	return nil
 }
@@ -100,6 +102,21 @@ func (ca *CpuAnalyzer) ConsumeJavaFutexEvent(event *model.KindlingEvent) {
 		}
 	}
 	//ca.sendEventDirectly(event.GetPid(), event.Ctx.ThreadInfo.GetTid(), event.Ctx.ThreadInfo.Comm, ev)
+	ca.PutEventToSegments(event.GetPid(), event.Ctx.ThreadInfo.GetTid(), event.Ctx.ThreadInfo.Comm, ev)
+}
+
+func (ca *CpuAnalyzer) ConsumeJavaSpanEvent(event *model.KindlingEvent) {
+	ev := new(JavaSpanEvent)
+	ev.StartTime = event.Timestamp
+	for i := 0; i < int(event.ParamsNumber); i++ {
+		userAttributes := event.UserAttributes[i]
+		switch {
+		case userAttributes.GetKey() == "end_time":
+			ev.EndTime, _ = strconv.ParseUint(string(userAttributes.GetValue()), 10, 64)
+		case userAttributes.GetKey() == "data":
+			ev.Name = string(userAttributes.GetValue())
+		}
+	}
 	ca.PutEventToSegments(event.GetPid(), event.Ctx.ThreadInfo.GetTid(), event.Ctx.ThreadInfo.Comm, ev)
 }
 
