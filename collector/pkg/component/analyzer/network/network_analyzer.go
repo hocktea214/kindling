@@ -6,7 +6,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -131,7 +130,7 @@ func (na *NetworkAnalyzer) Start() error {
 		if protocolParser != nil {
 			na.protocolMap[protocolName] = protocolParser
 			disableDiscern, ok := disableDisernProtocols[protocolName]
-			if !ok || !disableDiscern {
+			if !protocolParser.IsStreamParser() && (!ok || !disableDiscern) {
 				parsers = append(parsers, protocolParser)
 			}
 		}
@@ -192,11 +191,7 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 	if err != nil {
 		return err
 	}
-	if isRequest {
-		return na.analyseRequest(evt)
-	} else {
-		return na.analyseResponse(evt)
-	}
+	return na.analyseRequest(evt, isRequest)
 }
 
 func (na *NetworkAnalyzer) consumerFdNoReusingTrace() {
@@ -204,19 +199,11 @@ func (na *NetworkAnalyzer) consumerFdNoReusingTrace() {
 	for {
 		select {
 		case <-timer.C:
+			now := time.Now().UnixNano() / 1000000000
+			fdReuseEndTime := now - int64(na.cfg.GetFdReuseTimeout())
+			noResponseEndTime := now - int64(na.cfg.getNoResponseThreshold())
 			na.requestMonitor.Range(func(k, v interface{}) bool {
-				mps := v.(*messagePairs)
-				var timeoutTs = mps.getTimeoutTs()
-				if timeoutTs != 0 {
-					var duration = time.Now().UnixNano()/1000000000 - int64(timeoutTs)/1000000000
-					if mps.responses != nil && duration >= int64(na.cfg.GetFdReuseTimeout()) {
-						// No FdReuse Request
-						_ = na.distributeTraceMetric(mps, nil)
-					} else if duration >= int64(na.cfg.getNoResponseThreshold()) {
-						// No Response Request
-						_ = na.distributeTraceMetric(mps, nil)
-					}
-				}
+				na.distributeTraceMetric(v.(*requestCache).getTimeoutPairs(fdReuseEndTime, noResponseEndTime))
 				return true
 			})
 		}
@@ -224,305 +211,83 @@ func (na *NetworkAnalyzer) consumerFdNoReusingTrace() {
 }
 
 func (na *NetworkAnalyzer) analyseConnect(evt *model.KindlingEvent) error {
-	mps := &messagePairs{
-		connects:         newEvents(evt, na.snaplen),
-		requests:         nil,
-		responses:        nil,
-		mutex:            sync.RWMutex{},
-		maxPayloadLength: na.snaplen,
-	}
-	if pairInterface, exist := na.requestMonitor.LoadOrStore(mps.getKey(), mps); exist {
-		// There is an old message pair
-		var oldPairs = pairInterface.(*messagePairs)
-		// TODO: is there any need to check old connect event?
-		if oldPairs.requests == nil && oldPairs.connects != nil {
-			if oldPairs.connects.IsTimeout(evt, na.cfg.GetConnectTimeout()) {
-				_ = na.distributeTraceMetric(oldPairs, mps)
+	key := evt.GetSocketKey()
+	if cacheInterface, exist := na.requestMonitor.Load(key); exist {
+		cache := cacheInterface.(*requestCache)
+		if (cache == nil || !cache.hasRequest()) && cache.connect != nil {
+			if cache.connect.isTimeout(evt, na.cfg.ConnectTimeout) {
+				na.distributeTraceMetric([]*messagePair{newConnectTimeoutMessagePair(cache.connect)})
 			} else {
-				oldPairs.mergeConnect(evt)
+				cache.connect.mergeEvent(evt, 0)
 			}
 			return nil
 		}
-
-		_ = na.distributeTraceMetric(oldPairs, mps)
+		na.distributeTraceMetric(cache.getPairedPairs())
+		cache.connect = newMergableEvent(evt)
 	} else {
-		na.recordMessagePairSize(evt, 1)
+		na.requestMonitor.Store(key, newConnectCache(evt))
 	}
 	return nil
 }
 
-func (na *NetworkAnalyzer) recordMessagePairSize(evt *model.KindlingEvent, count int64) {
-	if evt.IsUdp() == 1 {
-		atomic.AddInt64(&na.udpMessagePairSize, count)
-	} else {
-		atomic.AddInt64(&na.tcpMessagePairSize, count)
-	}
-}
-
-func (na *NetworkAnalyzer) analyseRequest(evt *model.KindlingEvent) error {
-	mps := &messagePairs{
-		connects:         nil,
-		requests:         newEvents(evt, na.snaplen),
-		responses:        nil,
-		mutex:            sync.RWMutex{},
-		maxPayloadLength: na.snaplen,
-	}
-	if pairInterface, exist := na.requestMonitor.LoadOrStore(mps.getKey(), mps); exist {
-		// There is an old message pair
-		var oldPairs = pairInterface.(*messagePairs)
-		if oldPairs.requests == nil {
-			if oldPairs.connects == nil {
-				// empty message pair, store new one
-				na.requestMonitor.Store(mps.getKey(), mps)
-				return nil
-			} else {
-				// there is a connect event, update it
-				oldPairs.mergeRequest(evt)
-				na.requestMonitor.Store(oldPairs.getKey(), oldPairs)
-				return nil
-			}
-		}
-
-		if oldPairs.responses != nil || oldPairs.requests.IsSportChanged(evt) {
-			_ = na.distributeTraceMetric(oldPairs, mps)
-		} else {
-			oldPairs.mergeRequest(evt)
+func (na *NetworkAnalyzer) analyseRequest(evt *model.KindlingEvent, isRequest bool) error {
+	var cache *requestCache
+	key := evt.GetSocketKey()
+	if cacheInterface, exist := na.requestMonitor.Load(key); exist {
+		cache = cacheInterface.(*requestCache)
+		if cache.parser == nil && cache.loopParsers == nil {
+			cache.initRequestCache(evt, isRequest, na.staticPortMap, na.protocolMap, na.parsers, na.snaplen)
 		}
 	} else {
-		na.recordMessagePairSize(evt, 1)
+		cache = newRequestCache(evt, isRequest, na.staticPortMap, na.protocolMap, na.parsers, na.snaplen)
+		na.requestMonitor.Store(key, cache)
 	}
-	return nil
+	return na.distributeTraceMetric(cache.cacheRequest(evt, isRequest))
 }
 
-func (na *NetworkAnalyzer) analyseResponse(evt *model.KindlingEvent) error {
-	pairInterface, ok := na.requestMonitor.Load(getMessagePairKey(evt))
-	if !ok {
+func (na *NetworkAnalyzer) distributeTraceMetric(mps []*messagePair) error {
+	if len(mps) == 0 {
 		return nil
 	}
-	var oldPairs = pairInterface.(*messagePairs)
-	if oldPairs.requests == nil {
-		// empty request, not a valid state
-		return nil
-	}
-
-	oldPairs.mergeResponse(evt)
-	na.requestMonitor.Store(oldPairs.getKey(), oldPairs)
-	return nil
-}
-
-func (na *NetworkAnalyzer) distributeTraceMetric(oldPairs *messagePairs, newPairs *messagePairs) error {
-	var queryEvt *model.KindlingEvent
-	if oldPairs.connects != nil {
-		queryEvt = oldPairs.connects.event
-	} else if oldPairs.requests != nil {
-		queryEvt = oldPairs.requests.event
-	} else {
-		return nil
-	}
-
-	if !oldPairs.checkSend() {
-		// FIX send twice for request/response with 15s delay.
-		return nil
-	}
-
-	if newPairs != nil {
-		na.requestMonitor.Store(newPairs.getKey(), newPairs)
-	} else {
-		na.recordMessagePairSize(queryEvt, -1)
-		na.requestMonitor.Delete(oldPairs.getKey())
-	}
-
-	// Relate conntrack
-	if na.cfg.EnableConntrack {
+	var (
+		record   *model.DataGroup
+		natTuple *conntracker.IPTranslation
+	)
+	request := mps[0].request
+	if na.cfg.EnableConntrack && request != nil {
+		queryEvt := request.event
 		srcIP := queryEvt.GetCtx().FdInfo.Sip[0]
 		dstIP := queryEvt.GetCtx().FdInfo.Dip[0]
 		srcPort := uint16(queryEvt.GetSport())
 		dstPort := uint16(queryEvt.GetDport())
 		isUdp := queryEvt.IsUdp()
-		natTuple := na.conntracker.GetDNATTuple(srcIP, dstIP, srcPort, dstPort, isUdp)
-		if nil != natTuple {
-			oldPairs.natTuple = natTuple
-		}
+		natTuple = na.conntracker.GetDNATTuple(srcIP, dstIP, srcPort, dstPort, isUdp)
 	}
-
-	// Parse Protocols
-	// Case 1 ConnectFail    Connect
-	// Case 2 Request 498   Connect/Request                         Request
-	// Case 3 Normal             Connect/Request/Response   Request/Response
-	records := na.parseProtocols(oldPairs)
-	for _, record := range records {
-		if ce := na.telemetry.Logger.Check(zapcore.DebugLevel, ""); ce != nil {
-			na.telemetry.Logger.Debug("NetworkAnalyzer To NextProcess:\n" + record.String())
+	for _, mp := range mps {
+		if mp.connect != nil && mp.request == nil {
+			record = na.getConnectFailRecord(mp)
+		} else {
+			record = na.getRecord(mp, natTuple)
 		}
-		netanalyzerParsedRequestTotal.Add(context.Background(), 1, attribute.String("protocol", record.Labels.GetStringValue(constlabels.Protocol)))
-		for _, nexConsumer := range na.nextConsumers {
-			_ = nexConsumer.Consume(record)
+		if record != nil {
+			if ce := na.telemetry.Logger.Check(zapcore.DebugLevel, ""); ce != nil {
+				na.telemetry.Logger.Debug("NetworkAnalyzer To NextProcess:\n" + record.String())
+			}
+			netanalyzerParsedRequestTotal.Add(context.Background(), 1, attribute.String("protocol", record.Labels.GetStringValue(constlabels.Protocol)))
+			for _, nexConsumer := range na.nextConsumers {
+				_ = nexConsumer.Consume(record)
+			}
+			na.dataGroupPool.Free(record)
 		}
-		na.dataGroupPool.Free(record)
 	}
 	return nil
 }
 
-func (na *NetworkAnalyzer) parseProtocols(mps *messagePairs) []*model.DataGroup {
-	// Step 1:  Static Config for port and protocol set in config file
-	port := mps.getPort()
-	staticProtocol, found := na.staticPortMap[port]
-	if found {
-		if mps.requests == nil {
-			// Connect Timeout
-			return na.getConnectFailRecords(mps)
-		}
-
-		if parser, exist := na.protocolMap[staticProtocol]; exist {
-			records := na.parseProtocol(mps, parser)
-			if records != nil {
-				return records
-			}
-		}
-		// Return Protocol Only
-		// 1. Parser is not implemnet or not set
-		// 2. Parse failure
-		return na.getRecords(mps, staticProtocol, nil)
-	}
-
-	if mps.requests == nil {
-		// Connect Timeout
-		return na.getConnectFailRecords(mps)
-	}
-
-	// Step2 Cache protocol and port
-	// TODO There is concurrent modify case when looping. Considering threadsafe.
-	cacheParsers, ok := na.parserFactory.GetCachedParsersByPort(port)
-	if ok {
-		for _, parser := range cacheParsers {
-			records := na.parseProtocol(mps, parser)
-			if records != nil {
-				if protocol.NOSUPPORT == parser.GetProtocol() {
-					// Reset mapping for  generic and port when exceed threshold so as to parsed by other protcols.
-					if parser.AddPortCount(port) == CACHE_RESET_THRESHOLD {
-						parser.ResetPort(port)
-						na.parserFactory.RemoveCachedParser(port, parser)
-					}
-				}
-				return records
-			}
-		}
-	}
-
-	// Step3 Loop all protocols
-	for _, parser := range na.parsers {
-		records := na.parseProtocol(mps, parser)
-		if records != nil {
-			// Add mapping for port and protocol when exceed threshold
-			if parser.AddPortCount(port) == CACHE_ADD_THRESHOLD {
-				na.parserFactory.AddCachedParser(port, parser)
-			}
-			return records
-		}
-	}
-	return na.getRecords(mps, protocol.NOSUPPORT, nil)
-}
-
-func (na *NetworkAnalyzer) parseProtocol(mps *messagePairs, parser *protocol.ProtocolParser) []*model.DataGroup {
-	if parser.MultiRequests() {
-		// Not mergable requests
-		return na.parseMultipleRequests(mps, parser)
-	}
-
-	// Mergable Data
-	requestMsg := protocol.NewRequestMessage(mps.requests.getData())
-	if !parser.ParseRequest(requestMsg) {
-		// Parse failure
-		return nil
-	}
-
-	if mps.responses == nil {
-		return na.getRecords(mps, parser.GetProtocol(), requestMsg.GetAttributes())
-	}
-
-	responseMsg := protocol.NewResponseMessage(mps.responses.getData(), requestMsg.GetAttributes())
-	if !parser.ParseResponse(responseMsg) {
-		// Parse failure
-		return nil
-	}
-	return na.getRecords(mps, parser.GetProtocol(), responseMsg.GetAttributes())
-}
-
-// parseMultipleRequests parses the messagePairs when we know there could be multiple read requests.
-// This is used only when the protocol is DNS now.
-func (na *NetworkAnalyzer) parseMultipleRequests(mps *messagePairs, parser *protocol.ProtocolParser) []*model.DataGroup {
-	// Match with key when disordering.
-	size := mps.requests.size()
-	parsedReqMsgs := make([]*protocol.PayloadMessage, size)
-	for i := 0; i < size; i++ {
-		req := mps.requests.getEvent(i)
-		requestMsg := protocol.NewRequestMessage(req.GetData())
-		if !parser.ParseRequest(requestMsg) {
-			// Parse failure
-			return nil
-		}
-		parsedReqMsgs[i] = requestMsg
-	}
-
-	records := make([]*model.DataGroup, 0)
-	if mps.responses == nil {
-		size := mps.requests.size()
-		for i := 0; i < size; i++ {
-			req := mps.requests.getEvent(i)
-			mp := &messagePair{
-				request:  req,
-				response: nil,
-				natTuple: mps.natTuple,
-			}
-			records = append(records, na.getRecordWithSinglePair(mp, parser.GetProtocol(), parsedReqMsgs[i].GetAttributes()))
-		}
-		return records
-	} else {
-		matchedRequestIdx := make(map[int]bool)
-		size := mps.responses.size()
-		for i := 0; i < size; i++ {
-			resp := mps.responses.getEvent(i)
-			responseMsg := protocol.NewResponseMessage(resp.GetData(), model.NewAttributeMap())
-			if !parser.ParseResponse(responseMsg) {
-				// Parse failure
-				return nil
-			}
-			// Match Request with repsone
-			matchIdx := parser.PairMatch(parsedReqMsgs, responseMsg)
-			if matchIdx == -1 {
-				return nil
-			}
-			matchedRequestIdx[matchIdx] = true
-
-			mp := &messagePair{
-				request:  mps.requests.getEvent(matchIdx),
-				response: resp,
-				natTuple: mps.natTuple,
-			}
-			records = append(records, na.getRecordWithSinglePair(mp, parser.GetProtocol(), responseMsg.GetAttributes()))
-		}
-		// 498 Case
-		reqSize := mps.requests.size()
-		for i := 0; i < reqSize; i++ {
-			req := mps.requests.getEvent(i)
-			if _, matched := matchedRequestIdx[i]; !matched {
-				mp := &messagePair{
-					request:  req,
-					response: nil,
-					natTuple: mps.natTuple,
-				}
-				records = append(records, na.getRecordWithSinglePair(mp, parser.GetProtocol(), parsedReqMsgs[i].GetAttributes()))
-			}
-		}
-		return records
-	}
-}
-
-func (na *NetworkAnalyzer) getConnectFailRecords(mps *messagePairs) []*model.DataGroup {
-	evt := mps.connects.event
+func (na *NetworkAnalyzer) getConnectFailRecord(mp *messagePair) *model.DataGroup {
+	evt := mp.connect.event
 	ret := na.dataGroupPool.Get()
-	ret.UpdateAddIntMetric(constvalues.ConnectTime, int64(mps.connects.getDuration()))
-	ret.UpdateAddIntMetric(constvalues.RequestTotalTime, int64(mps.connects.getDuration()))
+	ret.UpdateAddIntMetric(constvalues.ConnectTime, int64(mp.connect.duration))
+	ret.UpdateAddIntMetric(constvalues.RequestTotalTime, int64(mp.connect.duration))
 	ret.Labels.UpdateAddIntValue(constlabels.Pid, int64(evt.GetPid()))
 	ret.Labels.UpdateAddIntValue(constlabels.RequestTid, 0)
 	ret.Labels.UpdateAddIntValue(constlabels.ResponseTid, 0)
@@ -539,113 +304,51 @@ func (na *NetworkAnalyzer) getConnectFailRecords(mps *messagePairs) []*model.Dat
 	ret.Labels.UpdateAddBoolValue(constlabels.IsSlow, false)
 	ret.Labels.UpdateAddBoolValue(constlabels.IsServer, evt.GetCtx().GetFdInfo().Role)
 	ret.Timestamp = evt.GetStartTime()
-	return []*model.DataGroup{ret}
+	return ret
 }
 
-func (na *NetworkAnalyzer) getRecords(mps *messagePairs, protocol string, attributes *model.AttributeMap) []*model.DataGroup {
-	evt := mps.requests.event
+func (na *NetworkAnalyzer) getRecord(mp *messagePair, natTuple *conntracker.IPTranslation) *model.DataGroup {
+	evt := mp.request.event
 	// See the issue https://github.com/KindlingProject/kindling/issues/388 for details.
-	if attributes != nil && attributes.HasAttribute(constlabels.HttpContinue) {
-		if pairInterface, ok := na.requestMonitor.Load(getMessagePairKey(evt)); ok {
-			var oldPairs = pairInterface.(*messagePairs)
-			oldPairs.putRequestBack(mps.requests)
+	if protocol.HTTP == mp.protocol && mp.attributes != nil && mp.attributes.HasAttribute(constlabels.HttpContinue) {
+		if cacheInterface, ok := na.requestMonitor.Load(evt.GetSocketKey()); ok {
+			cacheInterface.(*requestCache).sequencePair.putRequestBack(mp.request)
 		}
-		return []*model.DataGroup{}
+		return nil
 	}
 
 	slow := false
-	if mps.responses != nil {
-		slow = na.isSlow(mps.getDuration(), protocol)
-	}
-
-	ret := na.dataGroupPool.Get()
-	labels := ret.Labels
-	labels.UpdateAddIntValue(constlabels.Pid, int64(evt.GetPid()))
-	addMessagePairsTid(labels, mps)
-	labels.UpdateAddStringValue(constlabels.Comm, evt.GetComm())
-	labels.UpdateAddStringValue(constlabels.SrcIp, evt.GetSip())
-	labels.UpdateAddStringValue(constlabels.DstIp, evt.GetDip())
-	labels.UpdateAddIntValue(constlabels.SrcPort, int64(evt.GetSport()))
-	labels.UpdateAddIntValue(constlabels.DstPort, int64(evt.GetDport()))
-	labels.UpdateAddStringValue(constlabels.DnatIp, constlabels.STR_EMPTY)
-	labels.UpdateAddIntValue(constlabels.DnatPort, -1)
-	labels.UpdateAddStringValue(constlabels.ContainerId, evt.GetContainerId())
-	labels.UpdateAddBoolValue(constlabels.IsError, false)
-	labels.UpdateAddIntValue(constlabels.ErrorType, int64(constlabels.NoError))
-	labels.UpdateAddBoolValue(constlabels.IsSlow, slow)
-	labels.UpdateAddBoolValue(constlabels.IsServer, evt.GetCtx().GetFdInfo().Role)
-	labels.UpdateAddStringValue(constlabels.Protocol, protocol)
-
-	labels.Merge(attributes)
-
-	if mps.responses != nil {
-		endTimestamp := mps.responses.getLastTimestamp()
-		labels.UpdateAddIntValue(constlabels.EndTimestamp, int64(endTimestamp))
-	}
-
-	if mps.responses == nil {
-		addProtocolPayload(protocol, labels, mps.requests.getData(), nil)
-	} else {
-		addProtocolPayload(protocol, labels, mps.requests.getData(), mps.responses.getData())
-	}
-
-	// If no protocol error found, we check other errors
-	if !labels.GetBoolValue(constlabels.IsError) && mps.responses == nil {
-		labels.AddBoolValue(constlabels.IsError, true)
-		labels.AddIntValue(constlabels.ErrorType, int64(constlabels.NoResponse))
-	}
-
-	if nil != mps.natTuple {
-		labels.UpdateAddStringValue(constlabels.DnatIp, mps.natTuple.ReplSrcIP.String())
-		labels.UpdateAddIntValue(constlabels.DnatPort, int64(mps.natTuple.ReplSrcPort))
-	}
-
-	ret.UpdateAddIntMetric(constvalues.ConnectTime, int64(mps.getConnectDuration()))
-	ret.UpdateAddIntMetric(constvalues.RequestSentTime, mps.getSentTime())
-	ret.UpdateAddIntMetric(constvalues.WaitingTtfbTime, mps.getWaitingTime())
-	ret.UpdateAddIntMetric(constvalues.ContentDownloadTime, mps.getDownloadTime())
-	ret.UpdateAddIntMetric(constvalues.RequestTotalTime, int64(mps.getConnectDuration()+mps.getDuration()))
-	ret.UpdateAddIntMetric(constvalues.RequestIo, int64(mps.getRquestSize()))
-	ret.UpdateAddIntMetric(constvalues.ResponseIo, int64(mps.getResponseSize()))
-
-	ret.Timestamp = evt.GetStartTime()
-
-	return []*model.DataGroup{ret}
-}
-
-// getRecordWithSinglePair generates a record whose metrics are copied from the input messagePair,
-// instead of messagePairs. This is used only when there could be multiple real requests in messagePairs.
-// For now, only messagePairs with DNS protocol would run into this method.
-func (na *NetworkAnalyzer) getRecordWithSinglePair(mp *messagePair, protocol string, attributes *model.AttributeMap) *model.DataGroup {
-	evt := mp.request
-
-	slow := na.isSlow(mp.getDuration(), protocol)
-	ret := na.dataGroupPool.Get()
-	labels := ret.Labels
-	labels.UpdateAddIntValue(constlabels.Pid, int64(evt.GetPid()))
-	addMessagePairTid(labels, mp)
-	labels.UpdateAddStringValue(constlabels.Comm, evt.GetComm())
-	labels.UpdateAddStringValue(constlabels.SrcIp, evt.GetSip())
-	labels.UpdateAddStringValue(constlabels.DstIp, evt.GetDip())
-	labels.UpdateAddIntValue(constlabels.SrcPort, int64(evt.GetSport()))
-	labels.UpdateAddIntValue(constlabels.DstPort, int64(evt.GetDport()))
-	labels.UpdateAddStringValue(constlabels.DnatIp, constlabels.STR_EMPTY)
-	labels.UpdateAddIntValue(constlabels.DnatPort, -1)
-	labels.UpdateAddStringValue(constlabels.ContainerId, evt.GetContainerId())
-	labels.UpdateAddBoolValue(constlabels.IsError, false)
-	labels.UpdateAddIntValue(constlabels.ErrorType, int64(constlabels.NoError))
-	labels.UpdateAddBoolValue(constlabels.IsSlow, slow)
-	labels.UpdateAddBoolValue(constlabels.IsServer, evt.GetCtx().GetFdInfo().Role)
-	labels.UpdateAddStringValue(constlabels.Protocol, protocol)
-
-	labels.Merge(attributes)
 	if mp.response != nil {
-		labels.UpdateAddIntValue(constlabels.EndTimestamp, int64(mp.response.Timestamp))
+		slow = na.isSlow(mp.getDuration(), mp.protocol)
+	}
+
+	ret := na.dataGroupPool.Get()
+	labels := ret.Labels
+	labels.UpdateAddIntValue(constlabels.Pid, int64(evt.GetPid()))
+	labels.UpdateAddIntValue(constlabels.RequestTid, mp.getRequestTid())
+	labels.UpdateAddIntValue(constlabels.ResponseTid, mp.getResponseTid())
+	labels.UpdateAddStringValue(constlabels.Comm, evt.GetComm())
+	labels.UpdateAddStringValue(constlabels.SrcIp, evt.GetSip())
+	labels.UpdateAddStringValue(constlabels.DstIp, evt.GetDip())
+	labels.UpdateAddIntValue(constlabels.SrcPort, int64(evt.GetSport()))
+	labels.UpdateAddIntValue(constlabels.DstPort, int64(evt.GetDport()))
+	labels.UpdateAddStringValue(constlabels.DnatIp, constlabels.STR_EMPTY)
+	labels.UpdateAddIntValue(constlabels.DnatPort, -1)
+	labels.UpdateAddStringValue(constlabels.ContainerId, evt.GetContainerId())
+	labels.UpdateAddBoolValue(constlabels.IsError, false)
+	labels.UpdateAddIntValue(constlabels.ErrorType, int64(constlabels.NoError))
+	labels.UpdateAddBoolValue(constlabels.IsSlow, slow)
+	labels.UpdateAddBoolValue(constlabels.IsServer, mp.role)
+	labels.UpdateAddStringValue(constlabels.Protocol, mp.protocol)
+
+	labels.Merge(mp.attributes)
+	if mp.response != nil {
+		labels.UpdateAddIntValue(constlabels.EndTimestamp, int64(mp.response.endTime))
 	}
 	if mp.response == nil {
-		addProtocolPayload(protocol, labels, evt.GetData(), nil)
+		addProtocolPayload(mp.protocol, labels, mp.request.data, nil)
 	} else {
-		addProtocolPayload(protocol, labels, evt.GetData(), mp.response.GetData())
+		addProtocolPayload(mp.protocol, labels, mp.request.data, mp.response.data)
 	}
 
 	// If no protocol error found, we check other errors
@@ -654,9 +357,9 @@ func (na *NetworkAnalyzer) getRecordWithSinglePair(mp *messagePair, protocol str
 		labels.AddIntValue(constlabels.ErrorType, int64(constlabels.NoResponse))
 	}
 
-	if nil != mp.natTuple {
-		labels.UpdateAddStringValue(constlabels.DnatIp, mp.natTuple.ReplSrcIP.String())
-		labels.UpdateAddIntValue(constlabels.DnatPort, int64(mp.natTuple.ReplSrcPort))
+	if nil != natTuple {
+		labels.UpdateAddStringValue(constlabels.DnatIp, natTuple.ReplSrcIP.String())
+		labels.UpdateAddIntValue(constlabels.DnatPort, int64(natTuple.ReplSrcPort))
 	}
 
 	ret.UpdateAddIntMetric(constvalues.ConnectTime, 0)
@@ -668,33 +371,8 @@ func (na *NetworkAnalyzer) getRecordWithSinglePair(mp *messagePair, protocol str
 	ret.UpdateAddIntMetric(constvalues.ResponseIo, int64(mp.getResponseSize()))
 
 	ret.Timestamp = evt.GetStartTime()
+
 	return ret
-}
-
-func addMessagePairTid(labels *model.AttributeMap, mp *messagePair) {
-	if mp.request != nil {
-		labels.UpdateAddIntValue(constlabels.RequestTid, int64(mp.request.GetTid()))
-	} else {
-		labels.UpdateAddIntValue(constlabels.RequestTid, 0)
-	}
-	if mp.response != nil {
-		labels.UpdateAddIntValue(constlabels.ResponseTid, int64(mp.response.GetTid()))
-	} else {
-		labels.UpdateAddIntValue(constlabels.ResponseTid, 0)
-	}
-}
-
-func addMessagePairsTid(labels *model.AttributeMap, mps *messagePairs) {
-	if mps.requests != nil {
-		labels.UpdateAddIntValue(constlabels.RequestTid, int64(mps.requests.event.GetTid()))
-	} else {
-		labels.UpdateAddIntValue(constlabels.RequestTid, 0)
-	}
-	if mps.responses != nil {
-		labels.UpdateAddIntValue(constlabels.ResponseTid, int64(mps.responses.event.GetTid()))
-	} else {
-		labels.UpdateAddIntValue(constlabels.ResponseTid, 0)
-	}
 }
 
 func addProtocolPayload(protocolName string, labels *model.AttributeMap, request []byte, response []byte) {

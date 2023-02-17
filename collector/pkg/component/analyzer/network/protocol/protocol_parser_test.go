@@ -9,7 +9,10 @@ import (
 func TestReadBytes(t *testing.T) {
 	// ff 0 4 t e s t
 	data := []byte{0xff, 0x00, 0x04, 0x74, 0x65, 0x73, 0x74}
-	message := NewRequestMessage(data)
+	message := &PayloadMessage{
+		Data:   data,
+		Offset: 0,
+	}
 
 	tests := []struct {
 		name   string
@@ -41,7 +44,10 @@ func TestReadBytes(t *testing.T) {
 func TestReadInt16(t *testing.T) {
 	// ff 0 4 t e s t
 	data := []byte{0xff, 0x00, 0x04, 0x74, 0x65, 0x73, 0x74}
-	message := NewRequestMessage(data)
+	message := &PayloadMessage{
+		Data:   data,
+		Offset: 0,
+	}
 
 	tests := []struct {
 		name   string
@@ -59,7 +65,7 @@ func TestReadInt16(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var realValue int16
-			if _, err := message.ReadInt16(test.offset, &realValue); err != nil {
+			if _, err := ReadInt16(message.Data, test.offset, &realValue); err != nil {
 				assert.Equal(t, test.err, err)
 				return
 			}
@@ -71,8 +77,10 @@ func TestReadInt16(t *testing.T) {
 func TestReadInt32(t *testing.T) {
 	// ff 0 0 0 4 t e s t
 	data := []byte{0xff, 0x00, 0x00, 0x00, 0x04, 0x74, 0x65, 0x73, 0x74}
-	message := NewRequestMessage(data)
-
+	message := &PayloadMessage{
+		Data:   data,
+		Offset: 0,
+	}
 	tests := []struct {
 		name   string
 		offset int
@@ -89,7 +97,7 @@ func TestReadInt32(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var realValue int32
-			if _, err := message.ReadInt32(test.offset, &realValue); err != nil {
+			if _, err := ReadInt32(message.Data, test.offset, &realValue); err != nil {
 				assert.Equal(t, test.err, err)
 				return
 			}
@@ -101,8 +109,10 @@ func TestReadInt32(t *testing.T) {
 func TestReadNullableString(t *testing.T) {
 	// ff 0 4 t e s t
 	data := []byte{0xff, 0x00, 0x04, 0x74, 0x65, 0x73, 0x74}
-	message := NewRequestMessage(data)
-
+	message := &PayloadMessage{
+		Data:   data,
+		Offset: 0,
+	}
 	tests := []struct {
 		name   string
 		offset int

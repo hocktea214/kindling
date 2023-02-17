@@ -2,93 +2,96 @@ package network
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/Kindling-project/kindling/collector/pkg/metadata/conntracker"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 )
 
 type mergableEvent struct {
-	events []*model.KindlingEvent // Keep No more than 10 events.
+	event *model.KindlingEvent
 
-	latency uint64
-	resVal  int64
-	ts      uint64
-	data    []byte
+	duration uint64
+	size     int64
+	endTime  uint64
+	data     []byte
+	mergable bool
 }
 
-type events struct {
-	event            *model.KindlingEvent
-	mergable         *mergableEvent
-	maxPayloadLength int
-}
-
-func newEvents(evt *model.KindlingEvent, maxPayloadSize int) *events {
-	return &events{
-		event:            evt,
-		maxPayloadLength: maxPayloadSize,
+func newMergableEventWithSize(evt *model.KindlingEvent, size int64, data []byte) *mergableEvent {
+	return &mergableEvent{
+		event:    evt,
+		duration: evt.GetLatency(),
+		size:     size,
+		endTime:  evt.Timestamp,
+		data:     data,
+		mergable: evt.GetResVal() == int64(len(evt.GetData())),
 	}
 }
 
-func (evts *events) size() int {
-	if evts.mergable == nil {
-		return 1
+func newMergableEvent(evt *model.KindlingEvent) *mergableEvent {
+	return &mergableEvent{
+		event:    evt,
+		duration: evt.GetLatency(),
+		size:     evt.GetResVal(),
+		endTime:  evt.Timestamp,
+		data:     evt.GetData(),
+		mergable: evt.GetResVal() == int64(len(evt.GetData())),
 	}
-	return len(evts.mergable.events)
 }
 
-func (evts *events) getEvent(index int) *model.KindlingEvent {
-	if index == 0 {
-		return evts.event
-	}
-	if index > 0 && evts.mergable != nil && index < len(evts.mergable.events) {
-		return evts.mergable.events[index]
-	}
-	return nil
+func (mergable *mergableEvent) putEventBack(originEvts *mergableEvent, maxPayloadLength int) {
+	newEvt := mergable.event
+	mergable.event = originEvts.event
+	mergable.duration = originEvts.event.GetLatency()
+	mergable.size = originEvts.event.GetResVal()
+	mergable.endTime = originEvts.event.Timestamp
+	mergable.data = originEvts.event.GetData()
+	mergable.mergable = originEvts.mergable
+	mergable.mergeEvent(newEvt, maxPayloadLength)
 }
 
-func (evts *events) putEventBack(originEvts *events) {
-	newEvt := evts.event
-	evts.event = originEvts.event
-	evts.mergable = originEvts.mergable
-	evts.mergeEvent(newEvt)
-}
+func (mergable *mergableEvent) mergeEvent(evt *model.KindlingEvent, maxPayloadLength int) {
+	mergable.duration = evt.Timestamp - mergable.endTime + mergable.duration
+	mergable.size += evt.GetResVal()
+	mergable.endTime = evt.Timestamp
 
-func (evts *events) mergeEvent(evt *model.KindlingEvent) {
-	if evts.mergable == nil {
-		firstEvt := evts.event
-		evts.mergable = &mergableEvent{
-			events:  []*model.KindlingEvent{firstEvt},
-			latency: firstEvt.GetLatency(),
-			resVal:  firstEvt.GetResVal(),
-			ts:      firstEvt.Timestamp,
-			data:    firstEvt.GetData(),
-		}
-	}
-
-	if len(evts.mergable.events) < 10 {
-		// persistent connect
-		evts.mergable.events = append(evts.mergable.events, evt)
-	}
-	evts.mergable.latency = evt.Timestamp - evts.mergable.ts + evts.mergable.latency
-	evts.mergable.resVal += evt.GetResVal()
-	evts.mergable.ts = evt.Timestamp
-
-	// We have a constraint on the payload size. The merged data can accommodate a maximum payload size
-	// as same as SANPLEN that is also the maximum size of the syscall data.
-	// If the previous data size is smaller than maxPayloadLength, the later one would fill that gap.
-	appendLength := evts.getAppendLength(len(evt.GetData()))
-	if appendLength == 0 {
+	if !mergable.mergable {
 		return
 	}
-	evts.mergable.data = append(evts.mergable.data, evt.GetData()[0:appendLength]...)
+	appendLength := mergable.getAppendLength(len(evt.GetData()), maxPayloadLength)
+	if appendLength > 0 {
+		mergable.data = append(mergable.data, evt.GetData()[0:appendLength]...)
+	}
+	if evt.GetResVal() > int64(len(evt.GetData())) {
+		mergable.mergable = false
+	}
+}
+
+func (mergable *mergableEvent) mergeEventWithFixedLength(evt *model.KindlingEvent, size int64, maxPayloadLength int) {
+	mergable.duration = evt.Timestamp - mergable.endTime + mergable.duration
+	mergable.size += size
+	mergable.endTime = evt.Timestamp
+
+	if !mergable.mergable {
+		return
+	}
+	newEventLength := int(size)
+	if newEventLength > len(evt.GetData()) {
+		newEventLength = len(evt.GetData())
+	}
+	appendLength := mergable.getAppendLength(newEventLength, maxPayloadLength)
+	if appendLength > 0 {
+		mergable.data = append(mergable.data, evt.GetData()[0:appendLength]...)
+	}
+	if evt.GetResVal() > int64(len(evt.GetData())) {
+		mergable.mergable = false
+	}
 }
 
 // getAppendLength returns the length to accommodate the new event according to the remaining size and
 // the new event's size.
-func (evts *events) getAppendLength(newEventLength int) int {
-	remainingSize := evts.maxPayloadLength - len(evts.mergable.data)
+func (mergable *mergableEvent) getAppendLength(newEventLength int, maxPayloadLength int) int {
+	remainingSize := maxPayloadLength - len(mergable.data)
 	// If the merged data is full
 	if remainingSize <= 0 {
 		return 0
@@ -101,209 +104,126 @@ func (evts *events) getAppendLength(newEventLength int) int {
 	}
 }
 
-func (evts *events) getData() []byte {
-	if evts.mergable == nil {
-		return evts.event.GetData()
-	}
-	return evts.mergable.data
-}
-
-func (evts *events) getFirstTimestamp() uint64 {
-	return evts.event.Timestamp
-}
-
-func (evts *events) getLastTimestamp() uint64 {
-	if evts.mergable == nil {
-		return evts.event.Timestamp
-	}
-	return evts.mergable.ts
-}
-
-func (evts *events) IsTimeout(newEvt *model.KindlingEvent, timeout int) bool {
-	// old event is stale if timeout or sPort mismatched
-	// be careful about overflow
-	firstEvt := evts.event
-	firstStartTime := firstEvt.Timestamp - firstEvt.GetLatency()
-	if newEvt.Timestamp < firstStartTime {
+func (mergable *mergableEvent) isTimeout(newEvt *model.KindlingEvent, timeout int) bool {
+	startTime := mergable.endTime - mergable.duration
+	if newEvt.Timestamp < startTime {
 		return false
 	}
-	if newEvt.Timestamp-firstStartTime > uint64(timeout)*uint64(time.Second) || newEvt.GetSport() != firstEvt.GetSport() {
+	if newEvt.Timestamp-startTime > uint64(timeout)*uint64(time.Second) || newEvt.GetSport() != mergable.event.GetSport() {
 		return true
 	}
 	return false
 }
 
-func (evts *events) IsSportChanged(newEvt *model.KindlingEvent) bool {
-	return newEvt.GetSport() != evts.event.GetSport()
+func (mergable *mergableEvent) IsSportChanged(newEvt *model.KindlingEvent) bool {
+	return newEvt.GetSport() != mergable.event.GetSport()
 }
 
-func (evts *events) getDuration() uint64 {
-	if evts == nil {
-		return 0
+func (mergable *mergableEvent) getRole(reverse bool) bool {
+	if reverse {
+		return mergable.event.Ctx.FdInfo.Role
 	}
-
-	if evts.mergable == nil {
-		return evts.event.GetLatency()
-	}
-
-	return evts.mergable.latency
+	return !mergable.event.Ctx.FdInfo.Role
 }
 
-type messagePairs struct {
-	connects         *events
-	requests         *events
-	responses        *events
-	natTuple         *conntracker.IPTranslation
-	isSend           int32
-	mutex            sync.RWMutex // only for update latency and resval now
+type sequencePair struct {
+	request          *mergableEvent
+	response         *mergableEvent
 	maxPayloadLength int
+	mutex            sync.RWMutex // only for update latency and resval now
 }
 
-func (mps *messagePairs) checkSend() bool {
-	// Check Send Once.
-	return atomic.AddInt32(&mps.isSend, 1) == 1
-}
-
-func (mps *messagePairs) getKey() messagePairKey {
-	if mps.connects != nil {
-		return getMessagePairKey(mps.connects.event)
-	} else if mps.requests != nil {
-		return getMessagePairKey(mps.requests.event)
-	} else if mps.responses != nil {
-		return getMessagePairKey(mps.responses.event)
+func newSequencePair(maxPayloadLength int) *sequencePair {
+	return &sequencePair{
+		mutex:            sync.RWMutex{},
+		maxPayloadLength: maxPayloadLength,
 	}
-	return messagePairKey{}
 }
 
-func (mps *messagePairs) mergeConnect(evt *model.KindlingEvent) {
-	mps.mutex.Lock()
-	if mps.requests == nil {
-		mps.connects = newEvents(evt, mps.maxPayloadLength)
+func (sp *sequencePair) getMessagePairs(protocol string, connect *mergableEvent, attributes *model.AttributeMap) []*messagePair {
+	return []*messagePair{&messagePair{
+		protocol:   protocol,
+		role:       sp.request.event.Ctx.FdInfo.Role,
+		connect:    connect,
+		request:    sp.request,
+		response:   sp.response,
+		attributes: attributes,
+	}}
+}
+
+func (sp *sequencePair) getAndResetSequencePair() *sequencePair {
+	newPair := &sequencePair{
+		request:  sp.request,
+		response: sp.response,
+	}
+	sp.request = nil
+	sp.response = nil
+	return newPair
+}
+
+func (sp *sequencePair) cacheRequest(event *model.KindlingEvent, isRequest bool) *sequencePair {
+	if isRequest {
+		if sp.request == nil {
+			sp.request = newMergableEvent(event)
+		} else if sp.response == nil {
+			sp.mutex.Lock()
+			sp.request.mergeEvent(event, sp.maxPayloadLength)
+			sp.mutex.Unlock()
+		} else {
+			newPair := &sequencePair{
+				request:  sp.request,
+				response: sp.response,
+			}
+			sp.request = newMergableEvent(event)
+			sp.response = nil
+			return newPair
+		}
 	} else {
-		mps.connects.mergeEvent(evt)
+		if sp.request != nil {
+			if sp.response == nil {
+				sp.response = newMergableEvent(event)
+			} else {
+				sp.mutex.Lock()
+				sp.response.mergeEvent(event, sp.maxPayloadLength)
+				sp.mutex.Unlock()
+			}
+		}
 	}
-	mps.mutex.Unlock()
+	return nil
 }
 
-func (mps *messagePairs) putRequestBack(evts *events) {
-	mps.mutex.Lock()
-	if mps.requests == nil {
-		mps.requests = evts
+func (sp *sequencePair) putRequestBack(request *mergableEvent) {
+	if sp.request == nil {
+		sp.request = request
 	} else {
-		mps.requests.putEventBack(evts)
+		sp.request.putEventBack(request, sp.maxPayloadLength)
 	}
-	mps.mutex.Unlock()
-}
-
-func (mps *messagePairs) mergeRequest(evt *model.KindlingEvent) {
-	mps.mutex.Lock()
-	if mps.requests == nil {
-		mps.requests = newEvents(evt, mps.maxPayloadLength)
-	} else {
-		mps.requests.mergeEvent(evt)
-	}
-	mps.mutex.Unlock()
-}
-
-func (mps *messagePairs) mergeResponse(evt *model.KindlingEvent) {
-	mps.mutex.Lock()
-	if mps.responses == nil {
-		mps.responses = newEvents(evt, mps.maxPayloadLength)
-	} else {
-		mps.responses.mergeEvent(evt)
-	}
-	mps.mutex.Unlock()
-}
-
-func (mps *messagePairs) getPort() uint32 {
-	if mps.requests != nil {
-		return mps.requests.event.GetDport()
-	}
-	if mps.responses != nil {
-		return mps.responses.event.GetDport()
-	}
-	return 0
-}
-
-func (mps *messagePairs) getTimeoutTs() uint64 {
-	if mps.responses != nil {
-		return mps.responses.getLastTimestamp()
-	}
-	if mps.requests != nil {
-		return mps.requests.getLastTimestamp()
-	}
-	if mps.connects != nil {
-		return mps.connects.getLastTimestamp()
-	}
-	return 0
-}
-
-func (mps *messagePairs) getConnectDuration() uint64 {
-	if mps.connects == nil {
-		return 0
-	}
-
-	return mps.connects.getDuration()
-}
-
-func (mps *messagePairs) getSentTime() int64 {
-	if mps.requests == nil {
-		return -1
-	}
-
-	return int64(mps.requests.getDuration())
-}
-
-func (mps *messagePairs) getWaitingTime() int64 {
-	if mps.responses == nil {
-		return -1
-	}
-
-	return int64(mps.responses.getFirstTimestamp() - mps.responses.event.GetLatency() - mps.requests.getLastTimestamp())
-}
-
-func (mps *messagePairs) getDownloadTime() int64 {
-	if mps.responses == nil {
-		return -1
-	}
-
-	return int64(mps.responses.getDuration())
-}
-
-func (mps *messagePairs) getDuration() uint64 {
-	if mps.responses == nil {
-		return 0
-	}
-
-	return mps.responses.getLastTimestamp() - mps.requests.event.GetStartTime()
-}
-
-func (mps *messagePairs) getRquestSize() uint64 {
-	if mps.requests == nil {
-		return 0
-	}
-
-	if mps.requests.mergable == nil {
-		return uint64(mps.requests.event.GetResVal())
-	}
-	return uint64(mps.requests.mergable.resVal)
-}
-
-func (mps *messagePairs) getResponseSize() uint64 {
-	if mps.responses == nil {
-		return 0
-	}
-
-	if mps.responses.mergable == nil {
-		return uint64(mps.responses.event.GetResVal())
-	}
-	return uint64(mps.responses.mergable.resVal)
 }
 
 type messagePair struct {
-	request  *model.KindlingEvent
-	response *model.KindlingEvent
-	natTuple *conntracker.IPTranslation
+	protocol   string
+	role       bool
+	connect    *mergableEvent
+	request    *mergableEvent
+	response   *mergableEvent
+	attributes *model.AttributeMap
+}
+
+func newConnectTimeoutMessagePair(connect *mergableEvent) *messagePair {
+	return &messagePair{
+		connect: connect,
+	}
+}
+
+func newMessagePair(protocol string, reverse bool, connect *mergableEvent, request *mergableEvent, response *mergableEvent, attributes *model.AttributeMap) *messagePair {
+	return &messagePair{
+		protocol:   protocol,
+		role:       request.event.Ctx.FdInfo.Role != reverse, // xor operate
+		connect:    connect,
+		request:    request,
+		response:   response,
+		attributes: attributes,
+	}
 }
 
 func (mp *messagePair) getSentTime() int64 {
@@ -311,7 +231,7 @@ func (mp *messagePair) getSentTime() int64 {
 		return -1
 	}
 
-	return int64(mp.request.GetLatency())
+	return int64(mp.request.duration)
 }
 
 func (mp *messagePair) getWaitingTime() int64 {
@@ -319,7 +239,7 @@ func (mp *messagePair) getWaitingTime() int64 {
 		return -1
 	}
 
-	return int64(mp.response.Timestamp - mp.response.GetLatency() - mp.request.Timestamp)
+	return int64(mp.response.endTime - mp.response.duration - mp.request.endTime)
 }
 
 func (mp *messagePair) getDownloadTime() int64 {
@@ -327,21 +247,7 @@ func (mp *messagePair) getDownloadTime() int64 {
 		return -1
 	}
 
-	return int64(mp.response.GetLatency())
-}
-
-func (mp *messagePair) getRquestSize() uint64 {
-	if mp.request == nil {
-		return 0
-	}
-	return uint64(mp.request.GetResVal())
-}
-
-func (mp *messagePair) getResponseSize() uint64 {
-	if mp.response == nil {
-		return 0
-	}
-	return uint64(mp.response.GetResVal())
+	return int64(mp.response.duration)
 }
 
 func (mp *messagePair) getDuration() uint64 {
@@ -349,33 +255,33 @@ func (mp *messagePair) getDuration() uint64 {
 		return 0
 	}
 
-	return mp.response.Timestamp + mp.request.GetLatency() - mp.request.Timestamp
+	return mp.response.endTime + mp.request.duration - mp.request.endTime
 }
 
-// DNS will send different ip and port data with sharing fd and pid socket.
-type messagePairKey struct {
-	pid   uint32
-	fd    int32
-	sip   string
-	dip   string
-	sport uint32
-	dport uint32
-}
-
-func getMessagePairKey(evt *model.KindlingEvent) messagePairKey {
-	if evt.IsUdp() == 1 {
-		return messagePairKey{
-			pid:   evt.GetPid(),
-			fd:    evt.GetFd(),
-			sip:   evt.GetSip(),
-			dip:   evt.GetDip(),
-			sport: evt.GetSport(),
-			dport: evt.GetDport(),
-		}
-	} else {
-		return messagePairKey{
-			pid: evt.GetPid(),
-			fd:  evt.GetFd(),
-		}
+func (mp *messagePair) getRquestSize() uint64 {
+	if mp.request == nil {
+		return 0
 	}
+	return uint64(mp.request.size)
+}
+
+func (mp *messagePair) getResponseSize() uint64 {
+	if mp.response == nil {
+		return 0
+	}
+	return uint64(mp.response.size)
+}
+
+func (mp *messagePair) getRequestTid() int64 {
+	if mp.request == nil {
+		return 0
+	}
+	return int64(mp.request.event.GetTid())
+}
+
+func (mp *messagePair) getResponseTid() int64 {
+	if mp.response == nil {
+		return 0
+	}
+	return int64(mp.response.event.GetTid())
 }

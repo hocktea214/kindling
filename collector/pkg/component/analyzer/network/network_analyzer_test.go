@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -155,11 +155,13 @@ func testProtocol(t *testing.T, eventYaml string, traceYamls ...string) {
 			results = []*model.DataGroup{}
 			events := trace.getSortedEvents(eventCommon)
 			for _, event := range events {
+				fmt.Printf("[Recv Event] Time: %d, Name: %s, Duration: %d, Size: %d, Data: %s\n", event.Timestamp, event.Name, event.Latency, event.GetResVal(), protocol.GetPayloadString(event.GetData(), ""))
 				na.ConsumeEvent(event)
 			}
-			if pairInterface, ok := na.requestMonitor.Load(getMessagePairKey(events[0])); ok {
-				var oldPairs = pairInterface.(*messagePairs)
-				na.distributeTraceMetric(oldPairs, nil)
+			if cacheInterface, ok := na.requestMonitor.Load(events[0].GetSocketKey()); ok {
+				cache := cacheInterface.(*requestCache)
+				now := time.Now().UnixNano() / 1000000000
+				na.distributeTraceMetric(cache.getTimeoutPairs(now, now))
 			}
 			trace.Validate(t, results)
 		})
@@ -231,36 +233,12 @@ type Trace struct {
 	Expects   []TraceExpect `mapstructure:"expects"`
 }
 
-func (trace *Trace) PrepareMessagePairs(common *EventCommon) *messagePairs {
-	mps := &messagePairs{
-		connects:  nil,
-		requests:  nil,
-		responses: nil,
-		mutex:     sync.RWMutex{},
-	}
-	if trace.Connects != nil {
-		for _, connect := range trace.Connects {
-			mps.mergeConnect(connect.exchange(common))
-		}
-	}
-	if trace.Requests != nil {
-		for _, request := range trace.Requests {
-			mps.mergeRequest(request.exchange(common))
-		}
-	}
-	if trace.Responses != nil {
-		for _, response := range trace.Responses {
-			mps.mergeResponse(response.exchange(common))
-		}
-	}
-	return mps
-}
-
 func (trace *Trace) Validate(t *testing.T, results []*model.DataGroup) {
 	checkSize(t, "Expect Size", len(trace.Expects), len(results))
 
 	for i, result := range results {
 		expect := trace.Expects[i]
+		fmt.Printf("[Check Timestamp] %d\n", expect.Timestamp)
 		checkUint64Equal(t, "Timestamp", expect.Timestamp, result.Timestamp)
 
 		// Validate Metrics Metrics

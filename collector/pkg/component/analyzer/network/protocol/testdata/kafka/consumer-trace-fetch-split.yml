@@ -28,7 +28,7 @@ trace:
       timestamp: 100020000
       user_attributes:
         latency: 3000
-        res: 61
+        res: 79
         data:
           - "hex|0000000000000000000000000001"
           - "0011|container-monitor"
@@ -43,7 +43,7 @@ trace:
         waiting_ttfb_time: 3000
         content_download_time: 17000
         request_io: 107
-        response_io: 69
+        response_io: 87
       Labels:
         comm: "rdk:broker1"
         pid: 925

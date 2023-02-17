@@ -2,13 +2,9 @@ package protocol
 
 import (
 	"errors"
-	"strconv"
-	"sync/atomic"
 
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/tools"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
-
-	cmap "github.com/orcaman/concurrent-map"
 )
 
 const (
@@ -28,26 +24,62 @@ var (
 	ErrUnexpectedEOF   = errors.New("unexpected EOF")
 )
 
+type ProtocolMessage interface {
+	GetProtocol() string
+	SetData(newData []byte)
+	GetData() []byte
+	GetLength() int64
+	IsRequest() bool
+	IsReverse() bool
+	GetStreamId() int64
+	MergeRequest(request ProtocolMessage) bool
+	GetAttributes() *model.AttributeMap
+}
+
 type PayloadMessage struct {
-	Data         []byte
-	Offset       int
-	attributeMap *model.AttributeMap
+	Data    []byte
+	Offset  int
+	Size    int64
+	Request bool
 }
 
-func NewRequestMessage(data []byte) *PayloadMessage {
+func NewPayloadMessage(data []byte, offset int, size int64, request bool) *PayloadMessage {
+	var payload []byte
+	if len(data) > int(size) {
+		payload = data[0:int(size)]
+	} else {
+		payload = data
+	}
 	return &PayloadMessage{
-		Data:         data,
-		Offset:       0,
-		attributeMap: model.NewAttributeMap(),
+		Data:    payload,
+		Offset:  offset,
+		Size:    size,
+		Request: request,
 	}
 }
 
-func NewResponseMessage(data []byte, attributeMap *model.AttributeMap) *PayloadMessage {
-	return &PayloadMessage{
-		Data:         data,
-		Offset:       0,
-		attributeMap: attributeMap,
-	}
+func (message *PayloadMessage) SetData(newData []byte) {
+	message.Data = newData
+}
+
+func (message *PayloadMessage) GetData() []byte {
+	return message.Data
+}
+
+func (message *PayloadMessage) IsRequest() bool {
+	return message.Request
+}
+
+func (message *PayloadMessage) IsReverse() bool {
+	return false
+}
+
+func (message *PayloadMessage) GetLength() int64 {
+	return message.Size
+}
+
+func (message *PayloadMessage) GetStreamId() int64 {
+	return 0
 }
 
 func (message *PayloadMessage) IsComplete() bool {
@@ -58,76 +90,7 @@ func (message *PayloadMessage) HasMoreLength(length int) bool {
 	return message.Offset+length <= len(message.Data)
 }
 
-func (message *PayloadMessage) GetData(offset int, length int) []byte {
-	if offset+length > len(message.Data) {
-		return message.Data[offset:]
-	}
-	return message.Data[offset : offset+length]
-}
-
-// =============== Attributes ===============
-func (message PayloadMessage) GetAttributes() *model.AttributeMap {
-	return message.attributeMap
-}
-
-func (message PayloadMessage) AddIntAttribute(key string, value int64) {
-	message.attributeMap.AddIntValue(key, value)
-}
-
-func (message PayloadMessage) AddUtf8StringAttribute(key string, value string) {
-	message.attributeMap.AddStringValue(key, tools.FormatStringToUtf8(value))
-}
-
-func (message PayloadMessage) AddByteArrayUtf8Attribute(key string, value []byte) {
-	message.attributeMap.AddStringValue(key, tools.FormatByteArrayToUtf8(value))
-}
-
-func (message PayloadMessage) AddStringAttribute(key string, value string) {
-	message.attributeMap.AddStringValue(key, value)
-}
-
-func (message PayloadMessage) AddBoolAttribute(key string, value bool) {
-	message.attributeMap.AddBoolValue(key, value)
-}
-
-func (message PayloadMessage) GetIntAttribute(key string) int64 {
-	return message.attributeMap.GetIntValue(key)
-}
-
-func (message PayloadMessage) GetStringAttribute(key string) string {
-	return message.attributeMap.GetStringValue(key)
-}
-
-func (message PayloadMessage) GetBoolAttribute(key string) bool {
-	return message.attributeMap.GetBoolValue(key)
-}
-
-func (message PayloadMessage) HasAttribute(key string) bool {
-	return message.attributeMap.HasAttribute(key)
-}
-
 // =============== PayLoad ===============
-func (message *PayloadMessage) ReadUInt16(offset int) (value uint16, err error) {
-	if offset < 0 {
-		return 0, ErrArgumentInvalid
-	}
-	if offset+2 > len(message.Data) {
-		return 0, ErrMessageShort
-	}
-	return uint16(message.Data[offset])<<8 | uint16(message.Data[offset+1]), nil
-}
-
-func (message *PayloadMessage) ReadInt16(offset int, v *int16) (toOffset int, err error) {
-	if offset < 0 {
-		return -1, ErrArgumentInvalid
-	}
-	if offset+2 > len(message.Data) {
-		return -1, ErrMessageShort
-	}
-	*v = int16(message.Data[offset])<<8 | int16(message.Data[offset+1])
-	return offset + 2, nil
-}
-
 func (message *PayloadMessage) ReadInt32(offset int, v *int32) (toOffset int, err error) {
 	if offset < 0 {
 		return -1, ErrArgumentInvalid
@@ -190,7 +153,7 @@ func (message *PayloadMessage) ReadNullableString(offset int, compact bool, v *s
 
 func (message *PayloadMessage) readNullableString(offset int, v *string) (toOffset int, err error) {
 	var length int16
-	if toOffset, err = message.ReadInt16(offset, &length); err != nil {
+	if toOffset, err = ReadInt16(message.Data, offset, &length); err != nil {
 		return toOffset, err
 	}
 	if length < -1 {
@@ -255,7 +218,7 @@ func (message *PayloadMessage) readCompactArraySize(offset int, size *int32) (to
 
 func (message *PayloadMessage) readArraySize(offset int, size *int32) (toOffset int, err error) {
 	var length int32
-	if toOffset, err = message.ReadInt32(offset, &length); err != nil {
+	if toOffset, err = ReadInt32(message.Data, offset, &length); err != nil {
 		return toOffset, err
 	}
 	if length < -1 {
@@ -297,7 +260,7 @@ func (message *PayloadMessage) readCompactString(offset int, v *string) (toOffse
 
 func (message *PayloadMessage) readString(offset int, v *string) (toOffset int, err error) {
 	var length int16
-	if toOffset, err = message.ReadInt16(offset, &length); err != nil {
+	if toOffset, err = ReadInt16(message.Data, offset, &length); err != nil {
 		return toOffset, err
 	}
 	if length < 0 {
@@ -310,31 +273,6 @@ func (message *PayloadMessage) readString(offset int, v *string) (toOffset int, 
 
 	*v = string(message.Data[toOffset : toOffset+int(length)])
 	return toOffset + int(length), nil
-}
-
-func (message *PayloadMessage) ReadUntilBlank(from int) (int, []byte) {
-	var length = len(message.Data)
-
-	for i := from; i < length; i++ {
-		if message.Data[i] == ' ' {
-			return i + 1, message.Data[from:i]
-		}
-	}
-	return length, message.Data[from:length]
-}
-
-func (message *PayloadMessage) ReadUntilBlankWithLength(from int, fixedLength int) (int, []byte) {
-	var length = len(message.Data)
-	if fixedLength+from < length {
-		length = from + fixedLength
-	}
-
-	for i := from; i < length; i++ {
-		if message.Data[i] == ' ' {
-			return i + 1, message.Data[from:i]
-		}
-	}
-	return length, message.Data[from:length]
 }
 
 // Read Util \r\n
@@ -369,151 +307,168 @@ func (message *PayloadMessage) ReadUntilCRLF(from int) (offset int, data []byte)
 	return
 }
 
-type FastFailFn func(message *PayloadMessage) bool
-type ParsePkgFn func(message *PayloadMessage) (success bool, complete bool)
-type PairMatch func(requests []*PayloadMessage, response *PayloadMessage) int
+type ParseHeadFn func(data []byte, size int64, isRequest bool) (attributes ProtocolMessage)
+type ParsePayloadFn func(attributes ProtocolMessage, isRequest bool) (ok bool)
 
 type ProtocolParser struct {
-	protocol       string
-	multiFrames    bool
-	requestParser  PkgParser
-	responseParser PkgParser
-	pairMatch      PairMatch
-	portCounter    cmap.ConcurrentMap
+	protocol     string
+	streamParser bool
+	ParseHead    ParseHeadFn
+	ParsePayload ParsePayloadFn
 }
 
-func NewProtocolParser(protocol string, requestParser PkgParser, responseParser PkgParser, pairMatch PairMatch) *ProtocolParser {
+func NewProtocolParser(protocol string, streamParser bool, parseHead ParseHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
 	return &ProtocolParser{
-		protocol:       protocol,
-		requestParser:  requestParser,
-		responseParser: responseParser,
-		pairMatch:      pairMatch,
-		portCounter:    cmap.New(),
+		protocol:     protocol,
+		streamParser: streamParser,
+		ParseHead:    parseHead,
+		ParsePayload: parsePayload,
 	}
 }
 
-func (parser *ProtocolParser) EnableMultiFrame() {
-	parser.multiFrames = true
+func (parser *ProtocolParser) IsStreamParser() bool {
+	return parser.streamParser
 }
 
 func (parser *ProtocolParser) GetProtocol() string {
 	return parser.protocol
 }
 
-func (parser *ProtocolParser) MultiRequests() bool {
-	return parser.pairMatch != nil
-}
-
-func (parser *ProtocolParser) PairMatch(requests []*PayloadMessage, response *PayloadMessage) int {
-	if parser.pairMatch == nil {
-		return -1
+func (parser *ProtocolParser) Check(data []byte, size int64, isRequest bool) bool {
+	attributes := parser.ParseHead(data, size, isRequest)
+	if attributes == nil {
+		return false
 	}
-	return parser.pairMatch(requests, response)
+	return parser.ParsePayload(attributes, isRequest)
 }
 
-func (parser *ProtocolParser) ParseRequest(message *PayloadMessage) bool {
-	return parser.requestParser.parsePayload(parser.multiFrames, message)
-}
-
-func (parser *ProtocolParser) ParseResponse(message *PayloadMessage) bool {
-	return parser.responseParser.parsePayload(parser.multiFrames, message)
-}
-
-type PkgParser struct {
-	fastFail FastFailFn
-	parser   ParsePkgFn
-	children []*PkgParser
-}
-
-func CreatePkgParser(fastFail FastFailFn, parser ParsePkgFn) PkgParser {
-	return PkgParser{
-		fastFail: fastFail,
-		parser:   parser,
-		children: nil,
-	}
-}
-
-func (parent *PkgParser) Add(fastFail FastFailFn, parser ParsePkgFn) *PkgParser {
-	child := &PkgParser{
-		fastFail: fastFail,
-		parser:   parser,
-	}
-	parent.children = append(parent.children, child)
-	return child
-}
-
-func (current PkgParser) parsePayload(multiFrames bool, message *PayloadMessage) bool {
-	if multiFrames {
-		for {
-			status := current.parseOneFrame(message)
-			if status != PARSE_OK {
-				return status == PARSE_COMPLETE
-			}
-		}
-	}
-	return current.parseOneFrame(message) != PARSE_FAIL
-}
-
-func (current PkgParser) parseOneFrame(message *PayloadMessage) int {
-	if current.fastFail(message) {
-		return PARSE_FAIL
-	}
-	ok, complete := current.parser(message)
-	if !ok {
-		return PARSE_FAIL
-	}
-	if complete {
-		return PARSE_COMPLETE
-	}
-
-	// Continue when true, false
-	if current.children != nil {
-		for _, child := range current.children {
-			status := child.parseOneFrame(message)
-			if status != PARSE_FAIL {
-				// Return when subProtocol parser finished or success
-				return status
-			}
-		}
-		return PARSE_FAIL
-	}
-	return PARSE_OK
-}
-
-func (parser *ProtocolParser) AddPortCount(port uint32) uint32 {
-	key := strconv.Itoa(int(port))
-	if val, ok := parser.portCounter.Get(key); ok {
-		return atomic.AddUint32(val.(*uint32), 1)
-	} else {
-		count := uint32(1)
-		parser.portCounter.Set(key, &count)
-		return count
-	}
-}
-
-func (parser *ProtocolParser) ResetPort(port uint32) {
-	key := strconv.Itoa(int(port))
-	parser.portCounter.Remove(key)
-}
-
-func GetPayloadString(data []byte, protocolName string) string {
+func GetPayloadString(payload []byte, protocolName string) string {
 	switch protocolName {
 	case HTTP, REDIS:
-		return tools.FormatByteArrayToUtf8(getSubstrBytes(data, protocolName, 0))
+		return tools.FormatByteArrayToUtf8(getSubstrBytes(payload, protocolName, 0))
 	case DUBBO:
-		return tools.GetAsciiString(getSubstrBytes(data, protocolName, 16))
+		return tools.GetAsciiString(getSubstrBytes(payload, protocolName, 16))
 	default:
-		return tools.GetAsciiString(getSubstrBytes(data, protocolName, 0))
+		return tools.GetAsciiString(getSubstrBytes(payload, protocolName, 0))
 	}
 }
 
-func getSubstrBytes(data []byte, protocolName string, offset int) []byte {
+func getSubstrBytes(payload []byte, protocolName string, offset int) []byte {
 	length := GetPayLoadLength(protocolName)
 	if offset >= length {
-		return data[0:0]
+		return payload[0:0]
 	}
-	if offset+length > len(data) {
-		return data[offset:]
+	if offset+length > len(payload) {
+		return payload[offset:]
 	}
-	return data[offset : offset+length]
+	return payload[offset : offset+length]
+}
+
+func ReadUInt16(payload []byte, offset int) (value uint16, err error) {
+	if offset < 0 {
+		return 0, ErrArgumentInvalid
+	}
+	if offset+2 > len(payload) {
+		return 0, ErrMessageShort
+	}
+	return uint16(payload[offset])<<8 | uint16(payload[offset+1]), nil
+}
+
+func ReadInt16(payload []byte, offset int, v *int16) (toOffset int, err error) {
+	if offset < 0 {
+		return -1, ErrArgumentInvalid
+	}
+	if offset+2 > len(payload) {
+		return -1, ErrMessageShort
+	}
+	*v = int16(payload[offset])<<8 | int16(payload[offset+1])
+	return offset + 2, nil
+}
+
+func ReadUInt32(payload []byte, offset int) (value uint32, err error) {
+	if offset < 0 {
+		return 0, ErrArgumentInvalid
+	}
+	if offset+4 > len(payload) {
+		return 0, ErrMessageShort
+	}
+	return uint32(payload[offset])<<24 | uint32(payload[offset+1])<<16 | uint32(payload[offset+2])<<8 | uint32(payload[offset+3]), nil
+}
+
+func ReadInt32(payload []byte, offset int, v *int32) (toOffset int, err error) {
+	if offset < 0 {
+		return -1, ErrArgumentInvalid
+	}
+	if offset+4 > len(payload) {
+		return -1, ErrMessageShort
+	}
+	*v = int32(payload[offset])<<24 | int32(payload[offset+1])<<16 | int32(payload[offset+2])<<8 | int32(payload[offset+3])
+	return offset + 4, nil
+}
+
+func ReadInt64(payload []byte, offset int) (value int64, err error) {
+	if offset < 0 {
+		return 0, ErrArgumentInvalid
+	}
+	if offset+8 > len(payload) {
+		return 0, ErrMessageShort
+	}
+	return int64(payload[offset])<<56 | int64(payload[offset+1])<<48 | int64(payload[offset+2])<<40 | int64(payload[offset+3])<<32 | int64(payload[offset+4])<<24 | int64(payload[offset+5])<<16 | int64(payload[offset+6])<<8 | int64(payload[offset+7]), nil
+}
+
+func ReadUntilBlankWithLength(payload []byte, from int, fixedLength int) (offset int, data []byte) {
+	var length = len(payload)
+	if fixedLength+from < length {
+		length = from + fixedLength
+	}
+
+	for i := from; i < length; i++ {
+		if payload[i] == ' ' {
+			return i + 1, payload[from:i]
+		}
+	}
+	return length, payload[from:length]
+}
+
+func ReadUntilBlank(payload []byte, from int) (offset int, data []byte) {
+	var length = len(payload)
+
+	for i := from; i < length; i++ {
+		if payload[i] == ' ' {
+			return i + 1, payload[from:i]
+		}
+	}
+	return length, payload[from:length]
+}
+
+// Read Util \r\n
+func ReadUntilCRLF(payload []byte, from int) (offset int, data []byte) {
+	var length = len(payload)
+	if from >= length {
+		return EOF, nil
+	}
+
+	for i := from; i < length; i++ {
+		if payload[i] != '\r' {
+			continue
+		}
+
+		if i == length-1 {
+			// End with \r
+			offset = length
+			data = payload[from : length-1]
+			return
+		} else if payload[i+1] == '\n' {
+			// \r\n
+			offset = i + 2
+			data = payload[from:i]
+			return
+		} else {
+			return EOF, nil
+		}
+	}
+
+	offset = length
+	data = payload[from:]
+	return
 }
