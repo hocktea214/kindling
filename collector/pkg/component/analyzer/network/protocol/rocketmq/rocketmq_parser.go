@@ -9,6 +9,12 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/model/constlabels"
 )
 
+const (
+	FlagRequest  = 0
+	FlagResponse = 1
+	FlagOneway   = 2
+)
+
 func NewRocketMQParser() *protocol.ProtocolParser {
 	return protocol.NewProtocolParser(protocol.ROCKETMQ, false, parseHead, parsePayload)
 }
@@ -31,6 +37,12 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 		header = parseRocketMqHeader(data)
 	}
 	if header == nil {
+		return nil
+	}
+
+	if isRequest && (header.Flag != FlagRequest && header.Flag != FlagOneway) {
+		return nil
+	} else if !isRequest && header.Flag != FlagResponse {
 		return nil
 	}
 
