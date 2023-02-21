@@ -327,7 +327,7 @@ func (sp *streamPair) getStreamTimeoutMessagePairs(parser *protocol.ProtocolPars
 
 	unResolveResponseEvt := sp.getUnResolveMessage(false)
 	if unResolveResponseEvt != nil && int64(unResolveResponseEvt.endTime)/1000000000 <= noResponseEndTime {
-		sp.matchUnResolveEvent(parser, false, unResolveRequestEvt, &mps)
+		sp.matchUnResolveEvent(parser, false, unResolveResponseEvt, &mps)
 	}
 
 	sp.requestCache.Range(func(k, v interface{}) bool {
