@@ -104,10 +104,6 @@ func NewKafkaResponseAttributes(data []byte, correlationId int32, headLength int
 	}
 }
 
-func (kafka *KafkaAttributes) GetProtocol() string {
-	return protocol.KAFKA
-}
-
 func (kafka *KafkaAttributes) GetStreamId() int64 {
 	return int64(kafka.correlationId)
 }

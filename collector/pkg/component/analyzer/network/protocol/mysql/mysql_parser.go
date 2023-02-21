@@ -52,10 +52,6 @@ func NewMysqlAttributes(data []byte, size int64, isRequest bool) *MysqlAttribute
 	}
 }
 
-func (mysql *MysqlAttributes) GetProtocol() string {
-	return protocol.MYSQL
-}
-
 func (mysql *MysqlAttributes) MergeRequest(request protocol.ProtocolMessage) bool {
 	if request != nil {
 		requestAttributes := request.(*MysqlAttributes)

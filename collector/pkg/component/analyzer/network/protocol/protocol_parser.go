@@ -25,7 +25,6 @@ var (
 )
 
 type ProtocolMessage interface {
-	GetProtocol() string
 	SetData(newData []byte)
 	GetData() []byte
 	GetLength() int64

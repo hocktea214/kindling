@@ -171,10 +171,6 @@ func NewRocketmqResponseAttributes(data []byte, offset int, length int64, code i
 	}
 }
 
-func (rocketmq *RocketmqAttributes) GetProtocol() string {
-	return protocol.ROCKETMQ
-}
-
 func (rocketmq *RocketmqAttributes) MergeRequest(request protocol.ProtocolMessage) bool {
 	if request != nil {
 		requestAttributes := request.(*RocketmqAttributes)

@@ -31,10 +31,6 @@ func NewGenericAttributes(data []byte, size int64, isRequest bool) *GenericAttri
 	}
 }
 
-func (generic *GenericAttributes) GetProtocol() string {
-	return protocol.NOSUPPORT
-}
-
 func (generic *GenericAttributes) MergeRequest(request protocol.ProtocolMessage) bool {
 	return true
 }

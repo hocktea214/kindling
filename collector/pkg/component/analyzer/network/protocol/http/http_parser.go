@@ -147,10 +147,6 @@ func NewHttpResponseAttributes(data []byte, size int64, statusCode int64) *HttpA
 	}
 }
 
-func (http *HttpAttributes) GetProtocol() string {
-	return protocol.HTTP
-}
-
 func (http *HttpAttributes) MergeRequest(request protocol.ProtocolMessage) bool {
 	if request != nil {
 		requestAttributes := request.(*HttpAttributes)

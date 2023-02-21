@@ -223,10 +223,6 @@ func NewDnsAttributes(data []byte, size int64, isRequest bool, id int64, numOfQu
 	}
 }
 
-func (dns *DnsAttributes) GetProtocol() string {
-	return protocol.DNS
-}
-
 func (dns *DnsAttributes) GetStreamId() int64 {
 	return dns.id
 }

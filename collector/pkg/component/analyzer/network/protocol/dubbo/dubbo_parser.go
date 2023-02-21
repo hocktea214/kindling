@@ -91,10 +91,6 @@ func NewDubboAttributes(data []byte, isRequest bool, id int64, length uint32, ev
 	}
 }
 
-func (dubbo *DubboAttributes) GetProtocol() string {
-	return protocol.DUBBO
-}
-
 func (dubbo *DubboAttributes) GetStreamId() int64 {
 	return dubbo.id
 }
