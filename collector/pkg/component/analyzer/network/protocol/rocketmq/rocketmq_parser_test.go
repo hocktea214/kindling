@@ -11,7 +11,7 @@ import (
 
 func TestParseRocketmqJsonAndRocketMQ(t *testing.T) {
 	type args struct {
-		message *protocol.PayloadMessage
+		message []byte
 	}
 	reqs := [][]string{
 		//JSON - short
@@ -38,49 +38,33 @@ func TestParseRocketmqJsonAndRocketMQ(t *testing.T) {
 		wantHeader *rocketmqHeader
 	}{
 		//JSON
-		{name: "json_request_short", args: args{message: &protocol.PayloadMessage{
-			Data: datas[0],
-		}}, want: "{\"code\":105,\"extFields\":{\"topic\":\"TopicTest\"},\"flag\":0,\"language\":\"JAVA\",\"opaque\":2034,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":412}"},
-		{name: "json_response_short", args: args{message: &protocol.PayloadMessage{
-			Data: datas[1],
-		}}, want: "{\"code\":0,\"flag\":1,\"language\":\"JAVA\",\"opaque\":2034,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":412}"},
-		{name: "json_request_long", args: args{message: &protocol.PayloadMessage{
-			Data: datas[2],
-		}}, want: "{\"code\":310,\"extFields\":{\"a\":\"please_rename_unique_group_name\",\"b\":\"TopicTest\",\"c\":\"TBW102\",\"d\":\"4\",\"e\":\"1\",\"f\":\"0\",\"g\":\"1661601694866\",\"h\":\"0\",\"i\":\"UNIQ_KEY\\u00017F00000100D7135FBAA48879F8920026\\u0002WAIT\\u0001true\\u0002TAGS\\u0001TagA\",\"j\":\"0\",\"k\":\"false\",\"m\":\"false\"},\"flag\":0,\"language\":\"JAVA\",\"opaque\":84,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":401}"},
-		{name: "json_response_long", args: args{message: &protocol.PayloadMessage{
-			Data: datas[3],
-		}}, want: "{\"code\":0,\"extFields\":{\"queueId\":\"1\",\"TRACE_ON\":\"true\",\"MSG_REGION\":\"DefaultRegion\",\"msgId\":\"0AE95A5D00002A9F0000000000001C50\",\"queueOffset\":\"9\"},\"flag\":1,\"language\":\"JAVA\",\"opaque\":84,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":401}"},
+		{name: "json_request_short", args: args{message: datas[0]}, want: "{\"code\":105,\"extFields\":{\"topic\":\"TopicTest\"},\"flag\":0,\"language\":\"JAVA\",\"opaque\":2034,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":412}"},
+		{name: "json_response_short", args: args{message: datas[1]}, want: "{\"code\":0,\"flag\":1,\"language\":\"JAVA\",\"opaque\":2034,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":412}"},
+		{name: "json_request_long", args: args{message: datas[2]}, want: "{\"code\":310,\"extFields\":{\"a\":\"please_rename_unique_group_name\",\"b\":\"TopicTest\",\"c\":\"TBW102\",\"d\":\"4\",\"e\":\"1\",\"f\":\"0\",\"g\":\"1661601694866\",\"h\":\"0\",\"i\":\"UNIQ_KEY\\u00017F00000100D7135FBAA48879F8920026\\u0002WAIT\\u0001true\\u0002TAGS\\u0001TagA\",\"j\":\"0\",\"k\":\"false\",\"m\":\"false\"},\"flag\":0,\"language\":\"JAVA\",\"opaque\":84,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":401}"},
+		{name: "json_response_long", args: args{message: datas[3]}, want: "{\"code\":0,\"extFields\":{\"queueId\":\"1\",\"TRACE_ON\":\"true\",\"MSG_REGION\":\"DefaultRegion\",\"msgId\":\"0AE95A5D00002A9F0000000000001C50\",\"queueOffset\":\"9\"},\"flag\":1,\"language\":\"JAVA\",\"opaque\":84,\"serializeTypeCurrentRPC\":\"JSON\",\"version\":401}"},
 		//ROCKETMQ
-		{name: "rocketmq_request_short", args: args{message: &protocol.PayloadMessage{
-			Data: datas[4],
-		}}, wantHeader: &rocketmqHeader{
+		{name: "rocketmq_request_short", args: args{message: datas[4]}, wantHeader: &rocketmqHeader{
 			Code:         105,
 			Opaque:       2,
 			Flag:         0,
 			LanguageCode: 0,
 		},
 		},
-		{name: "rocketmq_response_short", args: args{message: &protocol.PayloadMessage{
-			Data: datas[5],
-		}}, wantHeader: &rocketmqHeader{
+		{name: "rocketmq_response_short", args: args{message: datas[5]}, wantHeader: &rocketmqHeader{
 			Code:         0,
 			Opaque:       2,
 			Flag:         1,
 			LanguageCode: 0,
 		},
 		},
-		{name: "rocketmq_request_long", args: args{message: &protocol.PayloadMessage{
-			Data: datas[6],
-		}}, wantHeader: &rocketmqHeader{
+		{name: "rocketmq_request_long", args: args{message: datas[6]}, wantHeader: &rocketmqHeader{
 			Code:         310,
 			Opaque:       1948,
 			Flag:         0,
 			LanguageCode: 0,
 		},
 		},
-		{name: "rocketmq_response_long", args: args{message: &protocol.PayloadMessage{
-			Data: datas[7],
-		}}, wantHeader: &rocketmqHeader{
+		{name: "rocketmq_response_long", args: args{message: datas[7]}, wantHeader: &rocketmqHeader{
 			Code:         0,
 			Opaque:       1948,
 			Flag:         1,
@@ -96,12 +80,12 @@ func TestParseRocketmqJsonAndRocketMQ(t *testing.T) {
 				headerLength  int32
 				serializeType uint8
 			)
-			tt.args.message.ReadInt32(0, &payLoadLength)
+			protocol.ReadInt32(tt.args.message, 0, &payLoadLength)
 
 			header := &rocketmqHeader{ExtFields: map[string]string{}}
-			if serializeType = tt.args.message.Data[4]; serializeType == 0 {
-				tt.args.message.ReadInt32(4, &headerLength)
-				_, headerBytes, err := tt.args.message.ReadBytes(8, int(headerLength))
+			if serializeType = tt.args.message[4]; serializeType == 0 {
+				protocol.ReadInt32(tt.args.message, 4, &headerLength)
+				_, headerBytes, err := protocol.ReadBytes(tt.args.message, 8, int(headerLength))
 				if err != nil {
 					panic(err)
 				}
@@ -113,7 +97,7 @@ func TestParseRocketmqJsonAndRocketMQ(t *testing.T) {
 					t.Errorf("ReadBytes() = %v, want %v", string(headerBytes), tt.want)
 				}
 			} else if serializeType == 1 {
-				parseHeader(tt.args.message, header)
+				header = parseRocketMqHeader(tt.args.message)
 				if header.Code != tt.wantHeader.Code {
 					t.Errorf("header.code = %v, want %v", header.Code, tt.wantHeader.Code)
 				}

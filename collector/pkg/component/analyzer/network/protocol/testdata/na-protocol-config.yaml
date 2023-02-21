@@ -8,7 +8,7 @@ analyzers:
     conntrack_max_state_size: 131072
     conntrack_rate_limit: 500
     proc_root: /proc
-    protocol_parser: [ http, mysql, dns, kafka, dubbo ]
+    protocol_parser: [ http, mysql, dns, kafka, dubbo, rocketmq ]
     url_clustering_method: alphabet
     protocol_config:
       - key: "http"
@@ -26,5 +26,7 @@ analyzers:
       - key: "dns"
         ports: [ 53 ]
         slow_threshold: 100
+      - key: "rocketmq"
+        slow_threshold: 500
       - key: "NOSUPPORT"
         ports: [ 1111 ]

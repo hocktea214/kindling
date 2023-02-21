@@ -238,7 +238,6 @@ func (trace *Trace) Validate(t *testing.T, results []*model.DataGroup) {
 
 	for i, result := range results {
 		expect := trace.Expects[i]
-		fmt.Printf("[Check Timestamp] %d\n", expect.Timestamp)
 		checkUint64Equal(t, "Timestamp", expect.Timestamp, result.Timestamp)
 
 		// Validate Metrics Metrics

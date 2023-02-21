@@ -364,6 +364,17 @@ func getSubstrBytes(payload []byte, protocolName string, offset int) []byte {
 	return payload[offset : offset+length]
 }
 
+func ReadBytes(payload []byte, offset int, length int) (toOffset int, value []byte, err error) {
+	if offset < 0 || length < 0 {
+		return EOF, nil, ErrArgumentInvalid
+	}
+	maxLength := offset + length
+	if maxLength > len(payload) {
+		return EOF, nil, ErrMessageShort
+	}
+	return maxLength, payload[offset:maxLength], nil
+}
+
 func ReadUInt16(payload []byte, offset int) (value uint16, err error) {
 	if offset < 0 {
 		return 0, ErrArgumentInvalid
