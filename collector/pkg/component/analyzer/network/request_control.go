@@ -17,6 +17,7 @@ type requestCache struct {
 	protocolMap     map[string]*protocol.ProtocolParser
 	sequenceParsers []*protocol.ProtocolParser
 	sequencePair    *sequencePair
+	count           int
 }
 
 func newConnectCache(connect *model.KindlingEvent) *requestCache {
@@ -117,6 +118,11 @@ func (cache *requestCache) cacheRequest(event *model.KindlingEvent, isRequest bo
 		if cache.reChecker.reCheck() {
 			streamParser := getMatchStreamParser(event, isRequest, cache.protocolMap)
 			if streamParser != nil {
+				// Clean SequencePair Data
+				cache.sequencePair = nil
+				cache.sequenceParsers = nil
+				cache.reChecker = nil
+
 				cache.parser = streamParser
 				cache.streamPair = newStreamPair(cache.sequencePair.maxPayloadLength)
 				return cache.streamPair.cacheRequest(cache.parser, event, isRequest)
@@ -191,6 +197,20 @@ func (cache *requestCache) hasRequest() bool {
 	return cache.streamPair.hasRequest()
 }
 
+func (cache *requestCache) getCountDiff() int {
+	oldVal := cache.count
+	if cache.parser == nil || !cache.parser.IsStreamParser() {
+		if cache.sequencePair != nil && cache.sequencePair.request != nil {
+			cache.count = 1
+		} else {
+			cache.count = 0
+		}
+	} else {
+		cache.count = cache.streamPair.getRequestCount()
+	}
+	return cache.count - oldVal
+}
+
 type streamPair struct {
 	maxPayloadLength int
 	requestCache     sync.Map
@@ -209,6 +229,18 @@ func newStreamPair(maxPayloadLength int) *streamPair {
 
 func (sp *streamPair) hasRequest() bool {
 	return sp.sendUnResolvedEvent != nil || sp.recvUnResolvedEvent != nil || sp.requestCount.Load() > 0
+}
+
+func (sp *streamPair) getRequestCount() int {
+	count := 0
+	if sp.sendUnResolvedEvent != nil {
+		count++
+	}
+	if sp.recvUnResolvedEvent != nil {
+		count++
+	}
+	count += int(sp.requestCount.Load())
+	return count
 }
 
 func (sp *streamPair) getUnResolveMessage(isRequest bool) *streamMessage {

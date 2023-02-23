@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -203,7 +204,8 @@ func (na *NetworkAnalyzer) consumerFdNoReusingTrace() {
 			fdReuseEndTime := now - int64(na.cfg.GetFdReuseTimeout())
 			noResponseEndTime := now - int64(na.cfg.getNoResponseThreshold())
 			na.requestMonitor.Range(func(k, v interface{}) bool {
-				na.distributeTraceMetric(v.(*requestCache).getTimeoutPairs(fdReuseEndTime, noResponseEndTime))
+				cache := v.(*requestCache)
+				na.distributeTraceMetric(cache, cache.getTimeoutPairs(fdReuseEndTime, noResponseEndTime))
 				return true
 			})
 		}
@@ -216,13 +218,13 @@ func (na *NetworkAnalyzer) analyseConnect(evt *model.KindlingEvent) error {
 		cache := cacheInterface.(*requestCache)
 		if (cache == nil || !cache.hasRequest()) && cache.connect != nil {
 			if cache.connect.isTimeout(evt, na.cfg.ConnectTimeout) {
-				na.distributeTraceMetric([]*messagePair{newConnectTimeoutMessagePair(cache.connect)})
+				na.distributeTraceMetric(cache, []*messagePair{newConnectTimeoutMessagePair(cache.connect)})
 			} else {
 				cache.connect.mergeEvent(evt, 0)
 			}
 			return nil
 		}
-		na.distributeTraceMetric(cache.getPairedPairs())
+		na.distributeTraceMetric(cache, cache.getPairedPairs())
 		cache.connect = newMergableEvent(evt)
 	} else {
 		na.requestMonitor.Store(key, newConnectCache(evt))
@@ -242,18 +244,26 @@ func (na *NetworkAnalyzer) analyseRequest(evt *model.KindlingEvent, isRequest bo
 		cache = newRequestCache(evt, isRequest, na.staticPortMap, na.protocolMap, na.parsers, na.snaplen)
 		na.requestMonitor.Store(key, cache)
 	}
-	return na.distributeTraceMetric(cache.cacheRequest(evt, isRequest))
+	return na.distributeTraceMetric(cache, cache.cacheRequest(evt, isRequest))
 }
 
-func (na *NetworkAnalyzer) distributeTraceMetric(mps []*messagePair) error {
+func (na *NetworkAnalyzer) distributeTraceMetric(cache *requestCache, mps []*messagePair) error {
 	if len(mps) == 0 {
 		return nil
 	}
+
 	var (
 		record   *model.DataGroup
 		natTuple *conntracker.IPTranslation
 	)
 	request := mps[0].request
+	if request != nil {
+		if request.event.IsUdp() == 1 {
+			atomic.AddInt64(&na.udpMessagePairSize, int64(cache.getCountDiff()))
+		} else {
+			atomic.AddInt64(&na.tcpMessagePairSize, int64(cache.getCountDiff()))
+		}
+	}
 	if na.cfg.EnableConntrack && request != nil {
 		queryEvt := request.event
 		srcIP := queryEvt.GetCtx().FdInfo.Sip[0]

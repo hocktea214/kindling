@@ -343,6 +343,9 @@ func (parser *ProtocolParser) GetProtocol() string {
 
 func (parser *ProtocolParser) Check(data []byte, size int64, isRequest bool) bool {
 	if attributes, _ := parser.ParseStreamHead(data, size, isRequest); attributes != nil {
+		if attributes.GetLength() < int64(len(data)) {
+			attributes.SetData(data[0:attributes.GetLength()])
+		}
 		return parser.ParsePayload(attributes)
 	}
 	return false

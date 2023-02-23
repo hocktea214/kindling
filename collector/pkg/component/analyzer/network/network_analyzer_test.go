@@ -163,7 +163,7 @@ func testProtocol(t *testing.T, eventYaml string, traceYamls ...string) {
 			if cacheInterface, ok := na.requestMonitor.Load(events[0].GetSocketKey()); ok {
 				cache := cacheInterface.(*requestCache)
 				now := time.Now().UnixNano() / 1000000000
-				na.distributeTraceMetric(cache.getTimeoutPairs(now, now))
+				na.distributeTraceMetric(cache, cache.getTimeoutPairs(now, now))
 			}
 			trace.Validate(t, results)
 		})
