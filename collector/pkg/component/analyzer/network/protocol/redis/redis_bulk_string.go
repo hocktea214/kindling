@@ -8,40 +8,41 @@ import (
 $3\r\nbar\r\n
 */
 func parseRedisBulkString() ParseRedisFn {
-	return func(message *RedisAttributes) (bool, bool) {
-		offset, data := message.ReadUntilCRLF(message.Offset + 1)
-		if data == nil {
-			return false, true
+	return func(message *RedisAttributes) (ok bool) {
+		var (
+			offset int
+			data   []byte
+			size   int
+			err    error
+		)
+		if offset, data = message.ReadUntilCRLF(message.Offset + 1); data == nil {
+			return false
 		}
-
-		size, err := strconv.Atoi(string(data))
-		if err != nil {
-			return false, true
+		if size, err = strconv.Atoi(string(data)); err != nil {
+			return false
 		}
 
 		// $-1\r\n
 		if size == -1 {
 			message.Offset = offset
-			return true, message.IsComplete()
+			return true
 		}
 
-		offset, data = message.ReadUntilCRLF(offset)
-		if data == nil {
-			return false, true
+		if offset, data = message.ReadUntilCRLF(offset); data == nil {
+			return false
 		}
-
 		/**
 		$0\r\n\r\n
 		$6\r\nfoobar\r\n
 		*/
 		if len(data) != size {
 			// Truncate Case
-
-			return offset == len(message.Data), true
+			message.Offset = offset
+			return message.IsComplete()
 		}
 
 		command := string(data)
-		if IsRedisCommand(data) {
+		if message.IsRequest() && IsRedisCommand(data) {
 			if len(message.command) == 0 {
 				message.command = command
 			} else {
@@ -50,6 +51,6 @@ func parseRedisBulkString() ParseRedisFn {
 		}
 
 		message.Offset = offset
-		return true, message.IsComplete()
+		return true
 	}
 }

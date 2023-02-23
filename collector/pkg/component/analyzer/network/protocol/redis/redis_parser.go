@@ -15,7 +15,7 @@ const (
 	ERROR   = '-'
 )
 
-type ParseRedisFn func(message *RedisAttributes) (ok bool, complete bool)
+type ParseRedisFn func(message *RedisAttributes) (ok bool)
 
 var REDIS_FNS = map[byte]ParseRedisFn{
 	ARRAY:   parseRedisArray(),
@@ -47,11 +47,10 @@ func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) bool {
 	message := attributes.(*RedisAttributes)
 	for {
 		if redisFn, exist := REDIS_FNS[message.Data[message.Offset]]; exist {
-			ok, complete := redisFn(message)
-			if !ok {
+			if ok := redisFn(message); !ok {
 				return false
 			}
-			if complete {
+			if message.IsComplete() {
 				return true
 			}
 		} else {
@@ -62,9 +61,8 @@ func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) bool {
 
 type RedisAttributes struct {
 	*protocol.PayloadMessage
-	contentKey string
-	command    string
-	errorMsg   string
+	command  string
+	errorMsg string
 }
 
 func NewRedisAttributes(data []byte, size int64, isRequest bool) *RedisAttributes {
@@ -76,7 +74,6 @@ func NewRedisAttributes(data []byte, size int64, isRequest bool) *RedisAttribute
 func (redis *RedisAttributes) MergeRequest(request protocol.ProtocolMessage) bool {
 	if request != nil {
 		requestAttributes := request.(*RedisAttributes)
-		redis.contentKey = requestAttributes.contentKey
 		redis.command = requestAttributes.command
 	}
 	return true

@@ -10,17 +10,17 @@ import (
 *3\r\n:1\r\n:2\r\n:3\r\n
  */
 func parseRedisArray() ParseRedisFn {
-	return func(message *RedisAttributes) (bool, bool) {
+	return func(message *RedisAttributes) (ok bool) {
 		offset, data := message.ReadUntilCRLF(message.Offset + 1)
 		if data == nil {
-			return false, true
+			return false
 		}
 
 		_, err := strconv.Atoi(string(data))
 		if err != nil {
-			return false, true
+			return false
 		}
 		message.Offset = offset
-		return true, message.IsComplete()
+		return true
 	}
 }
