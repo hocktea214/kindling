@@ -2,22 +2,13 @@ package redis
 
 import (
 	"strconv"
-
-	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol"
-	"github.com/Kindling-project/kindling/collector/pkg/model/constlabels"
 )
 
 /*
 $3\r\nbar\r\n
 */
-func fastfailRedisBulkString() protocol.FastFailFn {
-	return func(message *protocol.PayloadMessage) bool {
-		return message.Data[message.Offset] != '$'
-	}
-}
-
-func parseRedisBulkString() protocol.ParsePkgFn {
-	return func(message *protocol.PayloadMessage) (bool, bool) {
+func parseRedisBulkString() ParseRedisFn {
+	return func(message *RedisAttributes) (bool, bool) {
 		offset, data := message.ReadUntilCRLF(message.Offset + 1)
 		if data == nil {
 			return false, true
@@ -44,13 +35,18 @@ func parseRedisBulkString() protocol.ParsePkgFn {
 		$6\r\nfoobar\r\n
 		*/
 		if len(data) != size {
-			return false, true
+			// Truncate Case
+
+			return offset == len(message.Data), true
 		}
 
 		command := string(data)
-		if !message.HasAttribute(command) && IsRedisCommand(data) {
-			message.AddUtf8StringAttribute(constlabels.ContentKey, command)
-			message.AddUtf8StringAttribute(constlabels.RedisCommand, command)
+		if IsRedisCommand(data) {
+			if len(message.command) == 0 {
+				message.command = command
+			} else {
+				message.command = "PIPELINE"
+			}
 		}
 
 		message.Offset = offset

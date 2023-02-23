@@ -10,6 +10,7 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol/http"
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol/kafka"
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol/mysql"
+	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol/redis"
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/network/protocol/rocketmq"
 )
 
@@ -33,7 +34,7 @@ func NewParserFactory(options ...Option) *ParserFactory {
 	factory.protocolParsers[protocol.HTTP] = http.NewHttpParser(factory.config.urlClusteringMethod)
 	factory.protocolParsers[protocol.KAFKA] = kafka.NewKafkaParser()
 	factory.protocolParsers[protocol.MYSQL] = mysql.NewMysqlParser()
-	// factory.protocolParsers[protocol.REDIS] = redis.NewRedisParser()
+	factory.protocolParsers[protocol.REDIS] = redis.NewRedisParser()
 	factory.protocolParsers[protocol.DUBBO] = dubbo.NewDubboParser()
 	factory.protocolParsers[protocol.DNS] = dns.NewDnsParser()
 	factory.protocolParsers[protocol.ROCKETMQ] = rocketmq.NewRocketMQParser()

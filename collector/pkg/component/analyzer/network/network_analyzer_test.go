@@ -38,7 +38,9 @@ func TestMySqlProtocol(t *testing.T) {
 
 func TestRedisProtocol(t *testing.T) {
 	testProtocol(t, "redis/server-event.yml",
-		"redis/server-trace-get.yml")
+		"redis/server-trace-get.yml",
+		"redis/server-trace-pipeline.yml",
+		"redis/server-trace-set-truncate.yml")
 }
 
 func TestDnsProtocol(t *testing.T) {
