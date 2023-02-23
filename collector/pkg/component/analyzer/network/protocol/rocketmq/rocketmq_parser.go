@@ -16,10 +16,10 @@ const (
 )
 
 func NewRocketMQParser() *protocol.ProtocolParser {
-	return protocol.NewProtocolParser(protocol.ROCKETMQ, false, parseHead, parsePayload)
+	return protocol.NewSequenceParser(protocol.ROCKETMQ, parseHead, parsePayload)
 }
 
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
 	if len(data) < 29 {
 		return
 	}
@@ -37,13 +37,13 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 		header = parseRocketMqHeader(data)
 	}
 	if header == nil {
-		return nil
+		return
 	}
 
 	if isRequest && (header.Flag != FlagRequest && header.Flag != FlagOneway) {
-		return nil
+		return
 	} else if !isRequest && header.Flag != FlagResponse {
-		return nil
+		return
 	}
 
 	if isRequest {
@@ -56,10 +56,11 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 		} else {
 			contentKey = requestMsgMap[header.Code]
 		}
-		return NewRocketmqRequestAttributes(data, 0, size, header.Code, contentKey, header.Opaque)
+		attributes = NewRocketmqRequestAttributes(data, 0, size, header.Code, contentKey, header.Opaque)
 	} else {
-		return NewRocketmqResponseAttributes(data, 0, size, header.Code, header.Remark, header.Opaque)
+		attributes = NewRocketmqResponseAttributes(data, 0, size, header.Code, header.Remark, header.Opaque)
 	}
+	return
 }
 
 func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
@@ -123,15 +124,24 @@ func parseRocketMqHeader(data []byte) *rocketmqHeader {
 			valueLen int32
 			key      []byte
 			value    []byte
+			err      error
 		)
 		extFieldBytesLen := 0
 		extFieldMap := make(map[string]string)
 		// offset starts from 29
 		for extFieldBytesLen < int(extFieldLen) && extFieldBytesLen+29 < len(data) {
-			offset, _ = protocol.ReadInt16(data, offset, &keyLen)
-			offset, key, _ = protocol.ReadBytes(data, offset, int(keyLen))
-			offset, _ = protocol.ReadInt32(data, offset, &valueLen)
-			offset, value, _ = protocol.ReadBytes(data, offset, int(valueLen))
+			if offset, err = protocol.ReadInt16(data, offset, &keyLen); err != nil {
+				break
+			}
+			if offset, key, err = protocol.ReadBytes(data, offset, int(keyLen)); err != nil {
+				break
+			}
+			if offset, err = protocol.ReadInt32(data, offset, &valueLen); err != nil {
+				break
+			}
+			if offset, value, err = protocol.ReadBytes(data, offset, int(valueLen)); err != nil {
+				break
+			}
 			extFieldMap[string(key)] = string(value)
 			extFieldBytesLen = extFieldBytesLen + 2 + int(keyLen) + 4 + int(valueLen)
 			if string(key) == "topic" || string(key) == "b" {

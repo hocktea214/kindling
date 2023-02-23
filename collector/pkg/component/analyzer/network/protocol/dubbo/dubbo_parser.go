@@ -25,7 +25,7 @@ const (
 )
 
 func NewDubboParser() *protocol.ProtocolParser {
-	return protocol.NewProtocolParser(protocol.DUBBO, true, parseHead, parsePayload)
+	return protocol.NewStreamParser(protocol.DUBBO, parseHead, parsePayload)
 }
 
 /*
@@ -43,25 +43,24 @@ https://github.com/apache/dubbo-awesome/blob/master/images/protocol/dubbo_protoc
 	|                               Data Length(32)                                 |
 	+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+
 */
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
-	if len(data) < DubboHeadSize || data[0] != MagicHigh || data[1] != MagicLow {
-		return nil
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
+	if size < DubboHeadSize {
+		return nil, true
+	}
+	if data[0] != MagicHigh || data[1] != MagicLow || len(data) < DubboHeadSize {
+		return
 	}
 	serialID := data[2] & SerialMask
-	if serialID == Zero {
-		return nil
-	}
 	requestFlag := data[2] & FlagRequest
-	if isRequest && requestFlag == Zero {
-		return nil
-	}
-	if !isRequest && requestFlag != Zero {
-		return nil
+
+	if serialID == Zero || (isRequest && requestFlag == Zero) || (!isRequest && requestFlag != Zero) {
+		return
 	}
 	status := int(data[3])
 	id, _ := protocol.ReadInt64(data, 4)
 	length, _ := protocol.ReadUInt32(data, 12)
-	return NewDubboAttributes(data, isRequest, id, length, data[2], serialID, status)
+	attributes = NewDubboAttributes(data, isRequest, id, length, data[2], serialID, status)
+	return
 }
 
 func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {

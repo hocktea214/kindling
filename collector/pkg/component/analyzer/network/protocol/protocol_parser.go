@@ -306,7 +306,7 @@ func (message *PayloadMessage) ReadUntilCRLF(from int) (offset int, data []byte)
 	return
 }
 
-type ParseHeadFn func(data []byte, size int64, isRequest bool) (attributes ProtocolMessage)
+type ParseHeadFn func(data []byte, size int64, isRequest bool) (attributes ProtocolMessage, waitNextPkt bool)
 type ParsePayloadFn func(attributes ProtocolMessage, isRequest bool) (ok bool)
 
 type ProtocolParser struct {
@@ -316,10 +316,19 @@ type ProtocolParser struct {
 	ParsePayload ParsePayloadFn
 }
 
-func NewProtocolParser(protocol string, streamParser bool, parseHead ParseHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
+func NewSequenceParser(protocol string, parseHead ParseHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
 	return &ProtocolParser{
 		protocol:     protocol,
-		streamParser: streamParser,
+		streamParser: false,
+		ParseHead:    parseHead,
+		ParsePayload: parsePayload,
+	}
+}
+
+func NewStreamParser(protocol string, parseHead ParseHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
+	return &ProtocolParser{
+		protocol:     protocol,
+		streamParser: true,
 		ParseHead:    parseHead,
 		ParsePayload: parsePayload,
 	}
@@ -334,7 +343,7 @@ func (parser *ProtocolParser) GetProtocol() string {
 }
 
 func (parser *ProtocolParser) Check(data []byte, size int64, isRequest bool) bool {
-	attributes := parser.ParseHead(data, size, isRequest)
+	attributes, _ := parser.ParseHead(data, size, isRequest)
 	if attributes == nil {
 		return false
 	}

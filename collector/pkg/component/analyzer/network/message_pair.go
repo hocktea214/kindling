@@ -67,6 +67,15 @@ func (mergable *mergableEvent) mergeEvent(evt *model.KindlingEvent, maxPayloadLe
 	}
 }
 
+func (mergable *mergableEvent) resetSize(size int64) {
+	mergable.size = size
+	// close mergable
+	mergable.mergable = false
+	if len(mergable.data) > int(size) {
+		mergable.data = mergable.data[0:int(size)]
+	}
+}
+
 func (mergable *mergableEvent) mergeEventWithFixedLength(evt *model.KindlingEvent, size int64, maxPayloadLength int) {
 	mergable.duration = evt.Timestamp - mergable.endTime + mergable.duration
 	mergable.size += size

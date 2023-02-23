@@ -8,11 +8,11 @@ import (
 var empty_attributes = model.NewAttributeMap()
 
 func NewGenericParser() *protocol.ProtocolParser {
-	return protocol.NewProtocolParser(protocol.NOSUPPORT, false, parseHead, parsePayload)
+	return protocol.NewSequenceParser(protocol.NOSUPPORT, parseHead, parsePayload)
 }
 
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
-	return NewGenericAttributes(data, size, isRequest)
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
+	return NewGenericAttributes(data, size, isRequest), false
 }
 
 func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {

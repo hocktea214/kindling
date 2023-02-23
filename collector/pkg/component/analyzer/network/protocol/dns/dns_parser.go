@@ -39,12 +39,15 @@ https://www.rfc-editor.org/rfc/rfc1035
 	+---------------------+
 */
 func NewDnsParser() *protocol.ProtocolParser {
-	return protocol.NewProtocolParser(protocol.DNS, true, parseHead, parsePayload)
+	return protocol.NewStreamParser(protocol.DNS, parseHead, parsePayload)
 }
 
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
+	if size <= DNSHeaderSize {
+		return nil, true
+	}
 	if len(data) <= DNSHeaderSize || len(data) > MaxMessageSize {
-		return nil
+		return
 	}
 	offset := 0
 	id, _ := protocol.ReadUInt16(data, offset)
@@ -78,16 +81,17 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 			6-15 	Reserved for future use.
 	*/
 	if opcode > 2 || rcode > 5 || numOfQuestions == 0 || numOfRR > MaxNumRR {
-		return nil
+		return
 	}
 	if isRequest {
 		if qr != 0 || numOfRR > MaxNumRR {
-			return nil
+			return
 		}
 	} else if qr == 0 {
-		return nil
+		return
 	}
-	return NewDnsAttributes(data, size, isRequest, int64(id), int(numOfQuestions), int(numOfAnswers), int64(rcode))
+	attributes = NewDnsAttributes(data, size, isRequest, int64(id), int(numOfQuestions), int(numOfAnswers), int64(rcode))
+	return
 }
 
 /*

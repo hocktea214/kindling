@@ -37,12 +37,12 @@ var (
 
 func NewHttpParser(urlClusteringMethod string) *protocol.ProtocolParser {
 	clusteringMethod = urlclustering.NewMethod(urlClusteringMethod)
-	return protocol.NewProtocolParser(protocol.HTTP, false, parseHead, parsePayload)
+	return protocol.NewSequenceParser(protocol.HTTP, parseHead, parsePayload)
 }
 
-func parseHead(payload []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
+func parseHead(payload []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
 	if len(payload) < 14 {
-		return nil
+		return nil, false
 	}
 
 	var (
@@ -68,13 +68,13 @@ func parseHead(payload []byte, size int64, isRequest bool) (attributes protocol.
 		offset, method = protocol.ReadUntilBlankWithLength(payload, offset, 8)
 		if !httpMethodsList[string(method)] {
 			if payload[offset-1] != ' ' || payload[offset] != '/' {
-				return nil
+				return
 			}
 			// FIX ET /xxx Data with split payload.
 			if replaceMethod, ok := splitMethodsList[string(method)]; ok {
 				method = replaceMethod
 			} else {
-				return nil
+				return
 			}
 		}
 		_, url = protocol.ReadUntilBlank(payload, offset)
@@ -82,7 +82,7 @@ func parseHead(payload []byte, size int64, isRequest bool) (attributes protocol.
 		if len(contentKey) == 0 {
 			contentKey = "*"
 		}
-		return NewHttpRequestAttributes(payload, size, string(method), tools.FormatByteArrayToUtf8(url), tools.FormatStringToUtf8(contentKey))
+		attributes = NewHttpRequestAttributes(payload, size, string(method), tools.FormatByteArrayToUtf8(url), tools.FormatStringToUtf8(contentKey))
 	} else {
 		/*
 			Status line
@@ -97,20 +97,21 @@ func parseHead(payload []byte, size int64, isRequest bool) (attributes protocol.
 		*/
 		offset, version = protocol.ReadUntilBlankWithLength(payload, offset, 9)
 		if !httpVersoinList[string(version)] || payload[offset-1] != ' ' {
-			return nil
+			return
 		}
 
 		_, statusCode := protocol.ReadUntilBlankWithLength(payload, offset, 6)
 		statusCodeI, err = strconv.ParseInt(string(statusCode), 10, 0)
 		if err != nil {
-			return nil
+			return
 		}
 
 		if statusCodeI > 999 || statusCodeI < 99 {
 			statusCodeI = 0
 		}
-		return NewHttpResponseAttributes(payload, size, statusCodeI)
+		attributes = NewHttpResponseAttributes(payload, size, statusCodeI)
 	}
+	return
 }
 
 func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
