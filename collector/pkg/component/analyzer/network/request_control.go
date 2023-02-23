@@ -13,6 +13,8 @@ type requestCache struct {
 	connect         *mergableEvent
 	parser          *protocol.ProtocolParser
 	streamPair      *streamPair
+	reChecker       *noSupportCounter
+	protocolMap     map[string]*protocol.ProtocolParser
 	sequenceParsers []*protocol.ProtocolParser
 	sequencePair    *sequencePair
 }
@@ -45,15 +47,16 @@ func (cache *requestCache) initRequestCache(event *model.KindlingEvent, isReques
 		}
 	}
 	// Loop Stream Protocols
-	for _, parser := range protocolMap {
-		if parser.IsStreamParser() && parser.Check(event.GetData(), event.GetResVal(), isRequest) {
-			cache.parser = parser
-			cache.streamPair = newStreamPair(maxPayloadLength)
-			return
-		}
+	streamParser := getMatchStreamParser(event, isRequest, protocolMap)
+	if streamParser != nil {
+		cache.parser = streamParser
+		cache.streamPair = newStreamPair(maxPayloadLength)
+		return
 	}
+	cache.protocolMap = protocolMap
 	cache.sequenceParsers = pairParsers
 	cache.sequencePair = newSequencePair(maxPayloadLength)
+	cache.reChecker = newNoSupportCounter()
 }
 
 func (cache *requestCache) getPairedPairs() []*messagePair {
@@ -107,12 +110,35 @@ func (cache *requestCache) getAndResetConnect() *mergableEvent {
 }
 
 func (cache *requestCache) cacheRequest(event *model.KindlingEvent, isRequest bool) []*messagePair {
-	if cache.parser == nil || !cache.parser.IsStreamParser() {
+	if cache.parser == nil {
+		/*
+		   Provide Fault-tolerant mechanism for streamParser
+		*/
+		if cache.reChecker.reCheck() {
+			streamParser := getMatchStreamParser(event, isRequest, cache.protocolMap)
+			if streamParser != nil {
+				cache.parser = streamParser
+				cache.streamPair = newStreamPair(cache.sequencePair.maxPayloadLength)
+				return cache.streamPair.cacheRequest(cache.parser, event, isRequest)
+			}
+		}
+		sequencePair := cache.sequencePair.cacheRequest(event, isRequest)
+		return cache.getSequenceMessagePairs(sequencePair)
+	} else if !cache.parser.IsStreamParser() {
 		sequencePair := cache.sequencePair.cacheRequest(event, isRequest)
 		return cache.getSequenceMessagePairs(sequencePair)
 	} else {
 		return cache.streamPair.cacheRequest(cache.parser, event, isRequest)
 	}
+}
+
+func getMatchStreamParser(event *model.KindlingEvent, isRequest bool, protocolMap map[string]*protocol.ProtocolParser) *protocol.ProtocolParser {
+	for _, parser := range protocolMap {
+		if parser.IsStreamParser() && parser.Check(event.GetData(), event.GetResVal(), isRequest) {
+			return parser
+		}
+	}
+	return nil
 }
 
 func (cache *requestCache) getSequenceMessagePairs(sequencePair *sequencePair) []*messagePair {
@@ -128,9 +154,11 @@ func (cache *requestCache) getSequenceMessagePairs(sequencePair *sequencePair) [
 	for _, sequenceParser := range cache.sequenceParsers {
 		attributes := cache.parseSequencePairAttributes(sequencePair, sequenceParser)
 		if attributes != nil {
+			cache.reChecker.addCount(sequenceParser.GetProtocol())
 			return sequencePair.getMessagePairs(sequenceParser.GetProtocol(), cache.getAndResetConnect(), attributes)
 		}
 	}
+	cache.reChecker.addCount(protocol.NOSUPPORT)
 	return sequencePair.getMessagePairs(protocol.NOSUPPORT, cache.getAndResetConnect(), nil)
 }
 
@@ -260,14 +288,14 @@ func (sp *streamPair) splitParseStreamPacket(parser *protocol.ProtocolParser, ev
 	attributes := unResolvedMessage.attributes
 	var waitNextPkt bool
 	/*
-		UnPack & Pack Packet
-		          +=========+==========+----------+
-		Packed    | Pkt_0   |  Pkt_0'  |  Pkt_1   |
-		          +=========+==========+----------+
+	   UnPack & Pack Packet
+	             +=========+==========+----------+
+	   Packed    | Pkt_0   |  Pkt_0'  |  Pkt_1   |
+	             +=========+==========+----------+
 
-		          +========|-----------|==========+----------+
-		Truncate  | Pkt_0  | Truncated |  Pkt_0'  |  Pkt_1   |
-		          +========|-----------|==========+----------+
+	             +========|-----------|==========+----------+
+	   Truncate  | Pkt_0  | Truncated |  Pkt_0'  |  Pkt_1   |
+	             +========|-----------|==========+----------+
 	*/
 	for nextPktIndex <= event.GetResVal() {
 		mp := sp.parseStreamPacket(parser, event, isRequest, unResolvedMessage, attributes)
@@ -297,13 +325,13 @@ func (sp *streamPair) splitParseStreamPacket(parser *protocol.ProtocolParser, ev
 
 	if unResolvedMessage == nil {
 		/**
-		The last stream Packet (Pkt_1) in first unpacked Packet
-		          +--------+-------+
-		SysCall_0 | Pkt_0  | Pkt_1 |
-		          +--------+-------+
-		          +--------+-------+-----+-------+
-		SysCall_1 | Pkt_1' | Pkt_2 | ... | Pkt_N |
-		          +--------+-------+-----+-------+
+		  The last stream Packet (Pkt_1) in first unpacked Packet
+		            +--------+-------+
+		  SysCall_0 | Pkt_0  | Pkt_1 |
+		            +--------+-------+
+		            +--------+-------+-----+-------+
+		  SysCall_1 | Pkt_1' | Pkt_2 | ... | Pkt_N |
+		            +--------+-------+-----+-------+
 		*/
 		sp.putUnResolveMessage(newStreamMessage(newMergableEventWithSize(event, nextPktIndex-event.GetResVal(), attributes.GetData()), attributes), isRequest)
 	}
@@ -421,4 +449,53 @@ func newStreamMessage(mergableEvent *mergableEvent, attributes protocol.Protocol
 	}
 	message.mergableEvent = mergableEvent
 	return message
+}
+
+var window_counts = []int{5, 10, 20, 100}
+
+type noSupportCounter struct {
+	count  int
+	total  int
+	enable bool
+}
+
+func newNoSupportCounter() *noSupportCounter {
+	return &noSupportCounter{
+		count:  0,
+		total:  0,
+		enable: true,
+	}
+}
+
+func (counter *noSupportCounter) addCount(protocolName string) {
+	if counter.enable {
+		if protocolName == protocol.NOSUPPORT {
+			counter.count = counter.count + 1
+		}
+		counter.total = counter.total + 1
+	}
+}
+
+func (counter *noSupportCounter) reCheck() bool {
+	// Check is in window time.
+	if !counter.enable {
+		return false
+	}
+	for index, val := range window_counts {
+		if counter.count == val {
+			if index == len(window_counts)-1 {
+				// After N times, close window time
+				counter.enable = false
+			}
+			return counter.isNoSupport()
+		}
+	}
+	return false
+}
+
+/*
+If more than 80% pkt is identified as nosupport, then we will recheck the pkt is stream protocol.
+*/
+func (counter *noSupportCounter) isNoSupport() bool {
+	return counter.count*100/counter.total >= 80
 }
