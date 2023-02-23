@@ -76,27 +76,6 @@ func (mergable *mergableEvent) resetSize(size int64) {
 	}
 }
 
-func (mergable *mergableEvent) mergeEventWithFixedLength(evt *model.KindlingEvent, size int64, maxPayloadLength int) {
-	mergable.duration = evt.Timestamp - mergable.endTime + mergable.duration
-	mergable.size += size
-	mergable.endTime = evt.Timestamp
-
-	if !mergable.mergable {
-		return
-	}
-	newEventLength := int(size)
-	if newEventLength > len(evt.GetData()) {
-		newEventLength = len(evt.GetData())
-	}
-	appendLength := mergable.getAppendLength(newEventLength, maxPayloadLength)
-	if appendLength > 0 {
-		mergable.data = append(mergable.data, evt.GetData()[0:appendLength]...)
-	}
-	if evt.GetResVal() > int64(len(evt.GetData())) {
-		mergable.mergable = false
-	}
-}
-
 // getAppendLength returns the length to accommodate the new event according to the remaining size and
 // the new event's size.
 func (mergable *mergableEvent) getAppendLength(newEventLength int, maxPayloadLength int) int {
@@ -128,13 +107,6 @@ func (mergable *mergableEvent) IsSportChanged(newEvt *model.KindlingEvent) bool 
 	return newEvt.GetSport() != mergable.event.GetSport()
 }
 
-func (mergable *mergableEvent) getRole(reverse bool) bool {
-	if reverse {
-		return mergable.event.Ctx.FdInfo.Role
-	}
-	return !mergable.event.Ctx.FdInfo.Role
-}
-
 type sequencePair struct {
 	request          *mergableEvent
 	response         *mergableEvent
@@ -150,14 +122,7 @@ func newSequencePair(maxPayloadLength int) *sequencePair {
 }
 
 func (sp *sequencePair) getMessagePairs(protocol string, connect *mergableEvent, attributes *model.AttributeMap) []*messagePair {
-	return []*messagePair{&messagePair{
-		protocol:   protocol,
-		role:       sp.request.event.Ctx.FdInfo.Role,
-		connect:    connect,
-		request:    sp.request,
-		response:   sp.response,
-		attributes: attributes,
-	}}
+	return []*messagePair{newMessagePair(protocol, false, connect, sp.request, sp.response, attributes)}
 }
 
 func (sp *sequencePair) getAndResetSequencePair() *sequencePair {

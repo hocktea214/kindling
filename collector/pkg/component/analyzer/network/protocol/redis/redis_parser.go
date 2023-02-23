@@ -54,6 +54,8 @@ func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) bool {
 			if complete {
 				return true
 			}
+		} else {
+			return false
 		}
 	}
 }

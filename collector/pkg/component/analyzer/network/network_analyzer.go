@@ -273,7 +273,9 @@ func (na *NetworkAnalyzer) distributeTraceMetric(mps []*messagePair) error {
 			if ce := na.telemetry.Logger.Check(zapcore.DebugLevel, ""); ce != nil {
 				na.telemetry.Logger.Debug("NetworkAnalyzer To NextProcess:\n" + record.String())
 			}
-			netanalyzerParsedRequestTotal.Add(context.Background(), 1, attribute.String("protocol", record.Labels.GetStringValue(constlabels.Protocol)))
+			if len(mp.protocol) > 0 {
+				netanalyzerParsedRequestTotal.Add(context.Background(), 1, attribute.String("protocol", mp.protocol))
+			}
 			for _, nexConsumer := range na.nextConsumers {
 				_ = nexConsumer.Consume(record)
 			}
