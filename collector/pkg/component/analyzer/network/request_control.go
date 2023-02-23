@@ -10,7 +10,6 @@ import (
 )
 
 type requestCache struct {
-	connect         *mergableEvent
 	parser          *protocol.ProtocolParser
 	streamPair      *streamPair
 	reChecker       *noSupportCounter
@@ -20,54 +19,37 @@ type requestCache struct {
 	count           int
 }
 
-func newConnectCache(connect *model.KindlingEvent) *requestCache {
-	return &requestCache{
-		connect: newMergableEvent(connect),
-	}
-}
-
 func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap map[uint32]string, protocolMap map[string]*protocol.ProtocolParser, pairParsers []*protocol.ProtocolParser, maxPayloadLength int) *requestCache {
-	cache := &requestCache{}
-	cache.initRequestCache(event, isRequest, staticPortMap, protocolMap, pairParsers, maxPayloadLength)
-	return cache
-}
-
-func (cache *requestCache) initRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap map[uint32]string, protocolMap map[string]*protocol.ProtocolParser, pairParsers []*protocol.ProtocolParser, maxPayloadLength int) {
-	port := event.GetDport()
 	// Static Port
-	staticProtocol, found := staticPortMap[port]
-	if found {
+	if staticProtocol, found := staticPortMap[event.GetDport()]; found {
 		if parser, exist := protocolMap[staticProtocol]; exist {
-			cache.parser = parser
 			if parser.IsStreamParser() {
-				cache.streamPair = newStreamPair(maxPayloadLength)
+				return &requestCache{
+					parser:     parser,
+					streamPair: newStreamPair(maxPayloadLength),
+				}
 			} else {
-				cache.sequencePair = newSequencePair(maxPayloadLength)
+				return &requestCache{
+					parser:       parser,
+					sequencePair: newSequencePair(maxPayloadLength),
+				}
 			}
-			return
 		}
 	}
 	// Loop Stream Protocols
 	streamParser := getMatchStreamParser(event, isRequest, protocolMap)
 	if streamParser != nil {
-		cache.parser = streamParser
-		cache.streamPair = newStreamPair(maxPayloadLength)
-		return
-	}
-	cache.protocolMap = protocolMap
-	cache.sequenceParsers = pairParsers
-	cache.sequencePair = newSequencePair(maxPayloadLength)
-	cache.reChecker = newNoSupportCounter()
-}
-
-func (cache *requestCache) getPairedPairs() []*messagePair {
-	if cache.parser == nil || !cache.parser.IsStreamParser() {
-		if cache.sequencePair == nil || cache.sequencePair.request == nil {
-			return nil
+		return &requestCache{
+			parser:     streamParser,
+			streamPair: newStreamPair(maxPayloadLength),
 		}
-		return cache.getSequenceMessagePairs(cache.sequencePair.getAndResetSequencePair())
-	} else {
-		return nil
+	}
+
+	return &requestCache{
+		sequenceParsers: pairParsers,
+		sequencePair:    newSequencePair(maxPayloadLength),
+		protocolMap:     protocolMap,
+		reChecker:       newNoSupportCounter(),
 	}
 }
 
@@ -84,30 +66,11 @@ func (cache *requestCache) getTimeoutPairs(fdReuseEndTime int64, noResponseEndTi
 			if int64(cache.sequencePair.request.endTime)/1000000000 <= noResponseEndTime {
 				return cache.getSequenceMessagePairs(cache.sequencePair.getAndResetSequencePair())
 			}
-		} else if cache.connect != nil {
-			// Connect Timeout
-			if int64(cache.connect.endTime)/1000000000 <= noResponseEndTime {
-				return []*messagePair{newConnectTimeoutMessagePair(cache.getAndResetConnect())}
-			}
 		}
 	} else {
-		if cache.connect != nil && !cache.streamPair.hasRequest() {
-			// Connect Timeout
-			if int64(cache.connect.endTime)/1000000000 <= noResponseEndTime {
-				return []*messagePair{newConnectTimeoutMessagePair(cache.getAndResetConnect())}
-			}
-		}
 		return cache.streamPair.getStreamTimeoutMessagePairs(cache.parser, noResponseEndTime)
 	}
 	return nil
-}
-
-func (cache *requestCache) getAndResetConnect() *mergableEvent {
-	evt := cache.connect
-	if evt != nil {
-		cache.connect = nil
-	}
-	return evt
 }
 
 func (cache *requestCache) cacheRequest(event *model.KindlingEvent, isRequest bool) []*messagePair {
@@ -154,18 +117,18 @@ func (cache *requestCache) getSequenceMessagePairs(sequencePair *sequencePair) [
 	if cache.parser != nil {
 		// Specify Protocol for Port
 		attributes := cache.parseSequencePairAttributes(sequencePair, cache.parser)
-		return sequencePair.getMessagePairs(cache.parser.GetProtocol(), cache.getAndResetConnect(), attributes)
+		return sequencePair.getMessagePairs(cache.parser.GetProtocol(), attributes)
 	}
 	// Loop All SequenceParser Protocols
 	for _, sequenceParser := range cache.sequenceParsers {
 		attributes := cache.parseSequencePairAttributes(sequencePair, sequenceParser)
 		if attributes != nil {
 			cache.reChecker.addCount(sequenceParser.GetProtocol())
-			return sequencePair.getMessagePairs(sequenceParser.GetProtocol(), cache.getAndResetConnect(), attributes)
+			return sequencePair.getMessagePairs(sequenceParser.GetProtocol(), attributes)
 		}
 	}
 	cache.reChecker.addCount(protocol.NOSUPPORT)
-	return sequencePair.getMessagePairs(protocol.NOSUPPORT, cache.getAndResetConnect(), nil)
+	return sequencePair.getMessagePairs(protocol.NOSUPPORT, nil)
 }
 
 func (cache *requestCache) parseSequencePairAttributes(seqPair *sequencePair, parser *protocol.ProtocolParser) *model.AttributeMap {
@@ -188,13 +151,6 @@ func (cache *requestCache) parseSequencePairAttributes(seqPair *sequencePair, pa
 		}
 	}
 	return nil
-}
-
-func (cache *requestCache) hasRequest() bool {
-	if cache.parser == nil || !cache.parser.IsStreamParser() {
-		return cache.sequencePair != nil && cache.sequencePair.request != nil
-	}
-	return cache.streamPair.hasRequest()
 }
 
 func (cache *requestCache) getCountDiff() int {
@@ -225,10 +181,6 @@ func newStreamPair(maxPayloadLength int) *streamPair {
 		maxPayloadLength: maxPayloadLength,
 		requestCount:     atomic.NewInt32(0),
 	}
-}
-
-func (sp *streamPair) hasRequest() bool {
-	return sp.sendUnResolvedEvent != nil || sp.recvUnResolvedEvent != nil || sp.requestCount.Load() > 0
 }
 
 func (sp *streamPair) getRequestCount() int {
@@ -392,14 +344,14 @@ func (sp *streamPair) parseStreamPacket(parser *protocol.ProtocolParser, event *
 		request := match.(*streamMessage)
 		if attributes.IsRequest() {
 			// Send One Way Request
-			mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), nil, request.mergableEvent, nil, request.attributes.GetAttributes())
+			mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, nil, request.attributes.GetAttributes())
 		} else if attributes.MergeRequest(request.attributes) && parser.ParsePayload(attributes) {
 			// Send Request/Response Pair
 			if unResolvedMessage != nil {
 				// Use Merged Message
-				mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), nil, request.mergableEvent, unResolvedMessage.mergableEvent, attributes.GetAttributes())
+				mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, unResolvedMessage.mergableEvent, attributes.GetAttributes())
 			} else {
-				mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), nil, request.mergableEvent, newMergableEventWithSize(event, attributes.GetLength(), attributes.GetData()), attributes.GetAttributes())
+				mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, newMergableEventWithSize(event, attributes.GetLength(), attributes.GetData()), attributes.GetAttributes())
 			}
 		}
 	}
@@ -439,7 +391,7 @@ func (sp *streamPair) getStreamTimeoutMessagePairs(parser *protocol.ProtocolPars
 		if int64(request.endTime)/1000000000 <= noResponseEndTime {
 			sp.requestCache.Delete(k)
 			sp.requestCount.Dec()
-			mps = append(mps, newMessagePair(parser.GetProtocol(), request.attributes.IsReverse(), nil, request.mergableEvent, nil, request.attributes.GetAttributes()))
+			mps = append(mps, newMessagePair(parser.GetProtocol(), request.attributes.IsReverse(), request.mergableEvent, nil, request.attributes.GetAttributes()))
 		}
 		return true
 	})
@@ -457,16 +409,16 @@ func (sp *streamPair) matchUnResolveEvent(parser *protocol.ProtocolParser, isReq
 		request := match.(*streamMessage)
 		if attributes.IsRequest() {
 			// Send One Way Request
-			*mps = append(*mps, newMessagePair(parser.GetProtocol(), attributes.IsReverse(), nil, request.mergableEvent, nil, request.attributes.GetAttributes()))
+			*mps = append(*mps, newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, nil, request.attributes.GetAttributes()))
 		} else if attributes.MergeRequest(request.attributes) && parser.ParsePayload(attributes) {
 			// Send Request/Response Pair
-			*mps = append(*mps, newMessagePair(parser.GetProtocol(), attributes.IsReverse(), nil, request.mergableEvent, unResolvedMessage.mergableEvent, attributes.GetAttributes()))
+			*mps = append(*mps, newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, unResolvedMessage.mergableEvent, attributes.GetAttributes()))
 		}
 	}
 
 	if attributes.IsRequest() && parser.ParsePayload(attributes) {
 		// Save New Request and Wait New Response
-		*mps = append(*mps, newMessagePair(parser.GetProtocol(), attributes.IsReverse(), nil, unResolvedMessage.mergableEvent, nil, attributes.GetAttributes()))
+		*mps = append(*mps, newMessagePair(parser.GetProtocol(), attributes.IsReverse(), unResolvedMessage.mergableEvent, nil, attributes.GetAttributes()))
 	}
 }
 

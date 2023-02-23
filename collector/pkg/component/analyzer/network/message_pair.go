@@ -2,7 +2,6 @@ package network
 
 import (
 	"sync"
-	"time"
 
 	"github.com/Kindling-project/kindling/collector/pkg/model"
 )
@@ -92,17 +91,6 @@ func (mergable *mergableEvent) getAppendLength(newEventLength int, maxPayloadLen
 	}
 }
 
-func (mergable *mergableEvent) isTimeout(newEvt *model.KindlingEvent, timeout int) bool {
-	startTime := mergable.endTime - mergable.duration
-	if newEvt.Timestamp < startTime {
-		return false
-	}
-	if newEvt.Timestamp-startTime > uint64(timeout)*uint64(time.Second) || newEvt.GetSport() != mergable.event.GetSport() {
-		return true
-	}
-	return false
-}
-
 func (mergable *mergableEvent) IsSportChanged(newEvt *model.KindlingEvent) bool {
 	return newEvt.GetSport() != mergable.event.GetSport()
 }
@@ -121,8 +109,8 @@ func newSequencePair(maxPayloadLength int) *sequencePair {
 	}
 }
 
-func (sp *sequencePair) getMessagePairs(protocol string, connect *mergableEvent, attributes *model.AttributeMap) []*messagePair {
-	return []*messagePair{newMessagePair(protocol, false, connect, sp.request, sp.response, attributes)}
+func (sp *sequencePair) getMessagePairs(protocol string, attributes *model.AttributeMap) []*messagePair {
+	return []*messagePair{newMessagePair(protocol, false, sp.request, sp.response, attributes)}
 }
 
 func (sp *sequencePair) getAndResetSequencePair() *sequencePair {
@@ -177,23 +165,15 @@ func (sp *sequencePair) putRequestBack(request *mergableEvent) {
 type messagePair struct {
 	protocol   string
 	role       bool
-	connect    *mergableEvent
 	request    *mergableEvent
 	response   *mergableEvent
 	attributes *model.AttributeMap
 }
 
-func newConnectTimeoutMessagePair(connect *mergableEvent) *messagePair {
-	return &messagePair{
-		connect: connect,
-	}
-}
-
-func newMessagePair(protocol string, reverse bool, connect *mergableEvent, request *mergableEvent, response *mergableEvent, attributes *model.AttributeMap) *messagePair {
+func newMessagePair(protocol string, reverse bool, request *mergableEvent, response *mergableEvent, attributes *model.AttributeMap) *messagePair {
 	return &messagePair{
 		protocol:   protocol,
 		role:       request.event.Ctx.FdInfo.Role != reverse, // xor operate
-		connect:    connect,
 		request:    request,
 		response:   response,
 		attributes: attributes,

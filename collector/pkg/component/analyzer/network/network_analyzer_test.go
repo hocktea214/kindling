@@ -229,7 +229,6 @@ type FdInfo struct {
 
 type Trace struct {
 	Key       string        `mapstructure:"key"`
-	Connects  []TraceEvent  `mapstructure:"connects"`
 	Requests  []TraceEvent  `mapstructure:"requests"`
 	Responses []TraceEvent  `mapstructure:"responses"`
 	Expects   []TraceExpect `mapstructure:"expects"`
@@ -308,11 +307,6 @@ func checkSize(t *testing.T, key string, expect int, got int) {
 
 func (trace *Trace) getSortedEvents(common *EventCommon) []*model.KindlingEvent {
 	events := []*model.KindlingEvent{}
-	if trace.Connects != nil {
-		for _, connect := range trace.Connects {
-			events = append(events, connect.exchange(common))
-		}
-	}
 	if trace.Requests != nil {
 		for _, request := range trace.Requests {
 			events = append(events, request.exchange(common))

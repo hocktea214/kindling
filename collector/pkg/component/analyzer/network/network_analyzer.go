@@ -178,11 +178,6 @@ func (na *NetworkAnalyzer) ConsumeEvent(evt *model.KindlingEvent) error {
 		}
 	}
 
-	if evt.IsConnect() {
-		// connect event
-		return na.analyseConnect(evt)
-	}
-
 	if evt.GetDataLen() <= 0 || evt.GetResVal() < 0 {
 		// TODO: analyse udp
 		return nil
@@ -212,37 +207,13 @@ func (na *NetworkAnalyzer) consumerFdNoReusingTrace() {
 	}
 }
 
-func (na *NetworkAnalyzer) analyseConnect(evt *model.KindlingEvent) error {
-	key := evt.GetSocketKey()
-	if cacheInterface, exist := na.requestMonitor.Load(key); exist {
-		cache := cacheInterface.(*requestCache)
-		if (cache == nil || !cache.hasRequest()) && cache.connect != nil {
-			if cache.connect.isTimeout(evt, na.cfg.ConnectTimeout) {
-				na.distributeTraceMetric(cache, []*messagePair{newConnectTimeoutMessagePair(cache.connect)})
-			} else {
-				cache.connect.mergeEvent(evt, 0)
-			}
-			return nil
-		}
-		na.distributeTraceMetric(cache, cache.getPairedPairs())
-		cache.connect = newMergableEvent(evt)
-	} else {
-		na.requestMonitor.Store(key, newConnectCache(evt))
-	}
-	return nil
-}
-
 func (na *NetworkAnalyzer) analyseRequest(evt *model.KindlingEvent, isRequest bool) error {
 	var cache *requestCache
-	key := evt.GetSocketKey()
-	if cacheInterface, exist := na.requestMonitor.Load(key); exist {
+	if cacheInterface, exist := na.requestMonitor.Load(evt.GetSocketKey()); exist {
 		cache = cacheInterface.(*requestCache)
-		if cache.parser == nil && cache.sequenceParsers == nil {
-			cache.initRequestCache(evt, isRequest, na.staticPortMap, na.protocolMap, na.parsers, na.snaplen)
-		}
 	} else {
 		cache = newRequestCache(evt, isRequest, na.staticPortMap, na.protocolMap, na.parsers, na.snaplen)
-		na.requestMonitor.Store(key, cache)
+		na.requestMonitor.Store(evt.GetSocketKey(), cache)
 	}
 	return na.distributeTraceMetric(cache, cache.cacheRequest(evt, isRequest))
 }
@@ -274,11 +245,7 @@ func (na *NetworkAnalyzer) distributeTraceMetric(cache *requestCache, mps []*mes
 		natTuple = na.conntracker.GetDNATTuple(srcIP, dstIP, srcPort, dstPort, isUdp)
 	}
 	for _, mp := range mps {
-		if mp.connect != nil && mp.request == nil {
-			record = na.getConnectFailRecord(mp)
-		} else {
-			record = na.getRecord(mp, natTuple)
-		}
+		record = na.getRecord(mp, natTuple)
 		if record != nil {
 			if ce := na.telemetry.Logger.Check(zapcore.DebugLevel, ""); ce != nil {
 				na.telemetry.Logger.Debug("NetworkAnalyzer To NextProcess:\n" + record.String())
@@ -293,30 +260,6 @@ func (na *NetworkAnalyzer) distributeTraceMetric(cache *requestCache, mps []*mes
 		}
 	}
 	return nil
-}
-
-func (na *NetworkAnalyzer) getConnectFailRecord(mp *messagePair) *model.DataGroup {
-	evt := mp.connect.event
-	ret := na.dataGroupPool.Get()
-	ret.UpdateAddIntMetric(constvalues.ConnectTime, int64(mp.connect.duration))
-	ret.UpdateAddIntMetric(constvalues.RequestTotalTime, int64(mp.connect.duration))
-	ret.Labels.UpdateAddIntValue(constlabels.Pid, int64(evt.GetPid()))
-	ret.Labels.UpdateAddIntValue(constlabels.RequestTid, 0)
-	ret.Labels.UpdateAddIntValue(constlabels.ResponseTid, 0)
-	ret.Labels.UpdateAddStringValue(constlabels.Comm, evt.GetComm())
-	ret.Labels.UpdateAddStringValue(constlabels.SrcIp, evt.GetSip())
-	ret.Labels.UpdateAddStringValue(constlabels.DstIp, evt.GetDip())
-	ret.Labels.UpdateAddIntValue(constlabels.SrcPort, int64(evt.GetSport()))
-	ret.Labels.UpdateAddIntValue(constlabels.DstPort, int64(evt.GetDport()))
-	ret.Labels.UpdateAddStringValue(constlabels.DnatIp, constlabels.STR_EMPTY)
-	ret.Labels.UpdateAddIntValue(constlabels.DnatPort, -1)
-	ret.Labels.UpdateAddStringValue(constlabels.ContainerId, evt.GetContainerId())
-	ret.Labels.UpdateAddBoolValue(constlabels.IsError, true)
-	ret.Labels.UpdateAddIntValue(constlabels.ErrorType, int64(constlabels.ConnectFail))
-	ret.Labels.UpdateAddBoolValue(constlabels.IsSlow, false)
-	ret.Labels.UpdateAddBoolValue(constlabels.IsServer, evt.GetCtx().GetFdInfo().Role)
-	ret.Timestamp = evt.GetStartTime()
-	return ret
 }
 
 func (na *NetworkAnalyzer) getRecord(mp *messagePair, natTuple *conntracker.IPTranslation) *model.DataGroup {

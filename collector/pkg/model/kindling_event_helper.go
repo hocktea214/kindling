@@ -257,10 +257,6 @@ func (x *KindlingEvent) IsTcp() bool {
 	return fd.GetProtocol() == L4Proto_TCP
 }
 
-func (x *KindlingEvent) IsConnect() bool {
-	return x.Name == "connect"
-}
-
 func (x *KindlingEvent) IsRequest() (bool, error) {
 	if x.Category == Category_CAT_NET {
 		switch x.Name {
