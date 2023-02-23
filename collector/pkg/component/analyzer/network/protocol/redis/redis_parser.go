@@ -29,21 +29,21 @@ func NewRedisParser() *protocol.ProtocolParser {
 	return protocol.NewSequenceParser(protocol.REDIS, parseHead, parsePayload)
 }
 
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
 	if len(data) < 4 {
-		return
+		return nil
 	}
 	firstChar := data[0]
 	if firstChar == ARRAY || firstChar == BULK || firstChar == INTEGER {
-		attributes = NewRedisAttributes(data, size, isRequest)
+		return NewRedisAttributes(data, size, isRequest)
 	}
 	if !isRequest && (firstChar == STRING || firstChar == ERROR) {
-		attributes = NewRedisAttributes(data, size, isRequest)
+		return NewRedisAttributes(data, size, isRequest)
 	}
-	return
+	return nil
 }
 
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) bool {
+func parsePayload(attributes protocol.ProtocolMessage) bool {
 	message := attributes.(*RedisAttributes)
 	for {
 		if redisFn, exist := REDIS_FNS[message.Data[message.Offset]]; exist {

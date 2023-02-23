@@ -5,8 +5,8 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/tools"
 )
 
-func parseFetchPayload(message *KafkaAttributes, isRequest bool) (ok bool) {
-	if isRequest {
+func parseFetchPayload(message *KafkaAttributes) (ok bool) {
+	if message.IsRequest() {
 		return parseRequestFetch(message)
 	}
 	return parseResponseFetch(message)

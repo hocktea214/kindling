@@ -11,11 +11,11 @@ func NewGenericParser() *protocol.ProtocolParser {
 	return protocol.NewSequenceParser(protocol.NOSUPPORT, parseHead, parsePayload)
 }
 
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
-	return NewGenericAttributes(data, size, isRequest), false
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
+	return NewGenericAttributes(data, size, isRequest)
 }
 
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
+func parsePayload(attributes protocol.ProtocolMessage) (ok bool) {
 	return true
 }
 

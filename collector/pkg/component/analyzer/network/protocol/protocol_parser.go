@@ -306,36 +306,35 @@ func (message *PayloadMessage) ReadUntilCRLF(from int) (offset int, data []byte)
 	return
 }
 
-type ParseHeadFn func(data []byte, size int64, isRequest bool) (attributes ProtocolMessage, waitNextPkt bool)
-type ParsePayloadFn func(attributes ProtocolMessage, isRequest bool) (ok bool)
+type ParseStreamHeadFn func(data []byte, size int64, isRequest bool) (attributes ProtocolMessage, waitNextPkt bool)
+type ParseSequenceHeadFn func(data []byte, size int64, isRequest bool) (attributes ProtocolMessage)
+type ParsePayloadFn func(attributes ProtocolMessage) (ok bool)
 
 type ProtocolParser struct {
-	protocol     string
-	streamParser bool
-	ParseHead    ParseHeadFn
-	ParsePayload ParsePayloadFn
+	protocol          string
+	ParseStreamHead   ParseStreamHeadFn
+	ParseSequenceHead ParseSequenceHeadFn
+	ParsePayload      ParsePayloadFn
 }
 
-func NewSequenceParser(protocol string, parseHead ParseHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
+func NewSequenceParser(protocol string, parseHead ParseSequenceHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
 	return &ProtocolParser{
-		protocol:     protocol,
-		streamParser: false,
-		ParseHead:    parseHead,
-		ParsePayload: parsePayload,
+		protocol:          protocol,
+		ParseSequenceHead: parseHead,
+		ParsePayload:      parsePayload,
 	}
 }
 
-func NewStreamParser(protocol string, parseHead ParseHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
+func NewStreamParser(protocol string, parseHead ParseStreamHeadFn, parsePayload ParsePayloadFn) *ProtocolParser {
 	return &ProtocolParser{
-		protocol:     protocol,
-		streamParser: true,
-		ParseHead:    parseHead,
-		ParsePayload: parsePayload,
+		protocol:        protocol,
+		ParseStreamHead: parseHead,
+		ParsePayload:    parsePayload,
 	}
 }
 
 func (parser *ProtocolParser) IsStreamParser() bool {
-	return parser.streamParser
+	return parser.ParseStreamHead != nil
 }
 
 func (parser *ProtocolParser) GetProtocol() string {
@@ -343,11 +342,10 @@ func (parser *ProtocolParser) GetProtocol() string {
 }
 
 func (parser *ProtocolParser) Check(data []byte, size int64, isRequest bool) bool {
-	attributes, _ := parser.ParseHead(data, size, isRequest)
-	if attributes == nil {
-		return false
+	if attributes, _ := parser.ParseStreamHead(data, size, isRequest); attributes != nil {
+		return parser.ParsePayload(attributes)
 	}
-	return parser.ParsePayload(attributes, isRequest)
+	return false
 }
 
 func GetPayloadString(payload []byte, protocolName string) string {

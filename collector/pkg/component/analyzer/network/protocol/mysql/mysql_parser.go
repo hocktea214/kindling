@@ -17,9 +17,9 @@ func NewMysqlParser() *protocol.ProtocolParser {
 	return protocol.NewSequenceParser(protocol.MYSQL, parseHead, parsePayload)
 }
 
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
 	if len(data) <= HeadLength {
-		return
+		return nil
 	}
 	/*
 		===== Head =====
@@ -28,13 +28,12 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 		===== Payload =====
 		payload
 	*/
-	attributes = NewMysqlAttributes(data, size, isRequest)
-	return
+	return NewMysqlAttributes(data, size, isRequest)
 }
 
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) bool {
+func parsePayload(attributes protocol.ProtocolMessage) bool {
 	message := attributes.(*MysqlAttributes)
-	if isRequest {
+	if message.IsRequest() {
 		return parseRequestPayload(message)
 	}
 	return parseResponsePayload(message)

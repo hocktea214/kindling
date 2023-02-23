@@ -235,7 +235,7 @@ func (na *NetworkAnalyzer) analyseRequest(evt *model.KindlingEvent, isRequest bo
 	key := evt.GetSocketKey()
 	if cacheInterface, exist := na.requestMonitor.Load(key); exist {
 		cache = cacheInterface.(*requestCache)
-		if cache.parser == nil && cache.loopParsers == nil {
+		if cache.parser == nil && cache.sequenceParsers == nil {
 			cache.initRequestCache(evt, isRequest, na.staticPortMap, na.protocolMap, na.parsers, na.snaplen)
 		}
 	} else {

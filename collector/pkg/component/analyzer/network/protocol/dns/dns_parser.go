@@ -112,7 +112,7 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 	|                    ARCOUNT                    |
 	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 */
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
+func parsePayload(attributes protocol.ProtocolMessage) (ok bool) {
 	message := attributes.(*DnsAttributes)
 
 	domain, err := readQuery(message)
@@ -121,7 +121,7 @@ func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool)
 	}
 
 	message.domain = domain
-	if !isRequest {
+	if !attributes.IsRequest() {
 		ip := readIpV4Answer(message)
 		if len(ip) > 0 {
 			message.ip = ip

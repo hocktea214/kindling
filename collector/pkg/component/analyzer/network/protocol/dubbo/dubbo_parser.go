@@ -63,8 +63,8 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 	return
 }
 
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
-	if isRequest {
+func parsePayload(attributes protocol.ProtocolMessage) (ok bool) {
+	if attributes.IsRequest() {
 		message := attributes.(*DubboAttributes)
 		message.contentKey = message.getContentKey()
 	}

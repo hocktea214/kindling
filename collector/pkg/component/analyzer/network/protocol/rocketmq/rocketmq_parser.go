@@ -19,9 +19,9 @@ func NewRocketMQParser() *protocol.ProtocolParser {
 	return protocol.NewSequenceParser(protocol.ROCKETMQ, parseHead, parsePayload)
 }
 
-func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
+func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
 	if len(data) < 29 {
-		return
+		return nil
 	}
 	var (
 		payloadLength int32
@@ -37,13 +37,13 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 		header = parseRocketMqHeader(data)
 	}
 	if header == nil {
-		return
+		return nil
 	}
 
 	if isRequest && (header.Flag != FlagRequest && header.Flag != FlagOneway) {
-		return
+		return nil
 	} else if !isRequest && header.Flag != FlagResponse {
-		return
+		return nil
 	}
 
 	if isRequest {
@@ -56,14 +56,13 @@ func parseHead(data []byte, size int64, isRequest bool) (attributes protocol.Pro
 		} else {
 			contentKey = requestMsgMap[header.Code]
 		}
-		attributes = NewRocketmqRequestAttributes(data, 0, size, header.Code, contentKey, header.Opaque)
+		return NewRocketmqRequestAttributes(data, 0, size, header.Code, contentKey, header.Opaque)
 	} else {
-		attributes = NewRocketmqResponseAttributes(data, 0, size, header.Code, header.Remark, header.Opaque)
+		return NewRocketmqResponseAttributes(data, 0, size, header.Code, header.Remark, header.Opaque)
 	}
-	return
 }
 
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
+func parsePayload(attributes protocol.ProtocolMessage) (ok bool) {
 	return true
 }
 

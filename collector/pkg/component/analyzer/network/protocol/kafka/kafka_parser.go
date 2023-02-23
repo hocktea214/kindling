@@ -75,13 +75,13 @@ func parseResponseHead(data []byte, size int64) (attributes protocol.ProtocolMes
 	return
 }
 
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
+func parsePayload(attributes protocol.ProtocolMessage) (ok bool) {
 	message := attributes.(*KafkaAttributes)
 	if message.apiKey == _apiFetch {
-		return parseFetchPayload(message, isRequest)
+		return parseFetchPayload(message)
 	}
 	if message.apiKey == _apiProduce {
-		return parseProducePayload(message, isRequest)
+		return parseProducePayload(message)
 	}
 	return true
 }

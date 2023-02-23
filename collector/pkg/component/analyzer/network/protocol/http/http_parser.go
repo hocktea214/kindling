@@ -40,81 +40,89 @@ func NewHttpParser(urlClusteringMethod string) *protocol.ProtocolParser {
 	return protocol.NewSequenceParser(protocol.HTTP, parseHead, parsePayload)
 }
 
-func parseHead(payload []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage, waitNextPkt bool) {
+func parseHead(payload []byte, size int64, isRequest bool) (attributes protocol.ProtocolMessage) {
 	if len(payload) < 14 {
-		return nil, false
+		return nil
 	}
+	if isRequest {
+		return parseRequestHead(payload, size)
+	} else {
+		return parseResponseHead(payload, size)
+	}
+}
 
+func parseRequestHead(payload []byte, size int64) (attributes protocol.ProtocolMessage) {
 	var (
-		method      []byte
-		url         []byte
+		method []byte
+		url    []byte
+	)
+	/*
+		Request line
+			Method [GET/POST/PUT/DELETE/HEAD/TRACE/OPTIONS/CONNECT]
+			Blank
+			Request-URI [eg. /xxx/yyy?parm0=aaa&param1=bbb]
+			Blank
+			HTTP-Version [HTTP/1.0 | HTTP/1.2]
+			\r\n
+
+		Request header
+	*/
+	offset := 0
+	offset, method = protocol.ReadUntilBlankWithLength(payload, offset, 8)
+	if !httpMethodsList[string(method)] {
+		if payload[offset-1] != ' ' || payload[offset] != '/' {
+			return nil
+		}
+		// FIX ET /xxx Data with split payload.
+		if replaceMethod, ok := splitMethodsList[string(method)]; ok {
+			method = replaceMethod
+		} else {
+			return nil
+		}
+	}
+	_, url = protocol.ReadUntilBlank(payload, offset)
+	contentKey := clusteringMethod.Clustering(string(url))
+	if len(contentKey) == 0 {
+		contentKey = "*"
+	}
+	return NewHttpRequestAttributes(payload, size, string(method), tools.FormatByteArrayToUtf8(url), tools.FormatStringToUtf8(contentKey))
+}
+
+func parseResponseHead(payload []byte, size int64) (attributes protocol.ProtocolMessage) {
+	var (
 		version     []byte
 		statusCodeI int64
 		err         error
 	)
+	/*
+		Status line
+			HTTP-Version[HTTP/1.0 | HTTP/1.1]
+			Blank
+			Status-Code
+			Blank
+			Reason-Phrase
+			\r\n
+
+		Response header
+	*/
 	offset := 0
-	if isRequest {
-		/*
-		   Request line
-		   	    Method [GET/POST/PUT/DELETE/HEAD/TRACE/OPTIONS/CONNECT]
-		   		Blank
-		   		Request-URI [eg. /xxx/yyy?parm0=aaa&param1=bbb]
-		   		Blank
-		   		HTTP-Version [HTTP/1.0 | HTTP/1.2]
-		   		\r\n
-
-		   Request header
-		*/
-		offset, method = protocol.ReadUntilBlankWithLength(payload, offset, 8)
-		if !httpMethodsList[string(method)] {
-			if payload[offset-1] != ' ' || payload[offset] != '/' {
-				return
-			}
-			// FIX ET /xxx Data with split payload.
-			if replaceMethod, ok := splitMethodsList[string(method)]; ok {
-				method = replaceMethod
-			} else {
-				return
-			}
-		}
-		_, url = protocol.ReadUntilBlank(payload, offset)
-		contentKey := clusteringMethod.Clustering(string(url))
-		if len(contentKey) == 0 {
-			contentKey = "*"
-		}
-		attributes = NewHttpRequestAttributes(payload, size, string(method), tools.FormatByteArrayToUtf8(url), tools.FormatStringToUtf8(contentKey))
-	} else {
-		/*
-			Status line
-				HTTP-Version[HTTP/1.0 | HTTP/1.1]
-				Blank
-				Status-Code
-				Blank
-				Reason-Phrase
-				\r\n
-
-			Response header
-		*/
-		offset, version = protocol.ReadUntilBlankWithLength(payload, offset, 9)
-		if !httpVersoinList[string(version)] || payload[offset-1] != ' ' {
-			return
-		}
-
-		_, statusCode := protocol.ReadUntilBlankWithLength(payload, offset, 6)
-		statusCodeI, err = strconv.ParseInt(string(statusCode), 10, 0)
-		if err != nil {
-			return
-		}
-
-		if statusCodeI > 999 || statusCodeI < 99 {
-			statusCodeI = 0
-		}
-		attributes = NewHttpResponseAttributes(payload, size, statusCodeI)
+	offset, version = protocol.ReadUntilBlankWithLength(payload, offset, 9)
+	if !httpVersoinList[string(version)] || payload[offset-1] != ' ' {
+		return nil
 	}
-	return
+
+	_, statusCode := protocol.ReadUntilBlankWithLength(payload, offset, 6)
+	if statusCodeI, err = strconv.ParseInt(string(statusCode), 10, 0); err != nil {
+		return nil
+	}
+
+	if statusCodeI > 999 || statusCodeI < 99 {
+		statusCodeI = 0
+	}
+	return NewHttpResponseAttributes(payload, size, statusCodeI)
 }
 
-func parsePayload(attributes protocol.ProtocolMessage, isRequest bool) (ok bool) {
+func parsePayload(attributes protocol.ProtocolMessage) (ok bool) {
 	message := attributes.(*HttpAttributes)
 	if len(message.traceId) == 0 || len(message.traceType) == 0 {
 		message.parseTraceHeader()
@@ -190,17 +198,17 @@ func (http *HttpAttributes) parseTraceHeader() {
 	http.traceId = traceId
 }
 
-/*
-Requet-Line\r\n
-Key:Value\r\n
-...
-Key:Value\r\n
-\r\n
-Data
-*/
 func parseHeaders(payload []byte) map[string]string {
 	header := make(map[string]string)
 
+	/*
+		Requet-Line\r\n
+		Key:Value\r\n
+		...
+		Key:Value\r\n
+		\r\n
+		Data
+	*/
 	from, data := protocol.ReadUntilCRLF(payload, 0)
 	if data == nil {
 		return header
