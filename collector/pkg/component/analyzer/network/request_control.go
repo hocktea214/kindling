@@ -232,8 +232,7 @@ func (sp *streamPair) parseNewStreamPacket(parser *protocol.ProtocolParser, even
 func (sp *streamPair) parseAndMergeNewStreamPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool, unResolvedMessage *streamMessage) []*messagePair {
 	attributes := unResolvedMessage.attributes
 	var (
-		nextPktIndex int64
-		waitNextPkt  bool
+		waitNextPkt bool
 	)
 	// Merge NewEvent
 	unResolvedMessage.mergeEvent(event, sp.maxPayloadLength)
@@ -248,11 +247,11 @@ func (sp *streamPair) parseAndMergeNewStreamPacket(parser *protocol.ProtocolPars
 			return nil
 		}
 	}
-	nextPktIndex = attributes.GetLength() - unResolvedMessage.size + event.GetResVal()
-	if nextPktIndex > event.GetResVal() {
+	if unResolvedMessage.size < attributes.GetLength() {
 		// Wait Next Pkt
 		return nil
 	}
+	nextPktIndex := attributes.GetLength() - unResolvedMessage.size + event.GetResVal()
 	return sp.splitParseStreamPacket(parser, event, isRequest, unResolvedMessage, nextPktIndex)
 }
 
@@ -316,8 +315,8 @@ func (sp *streamPair) parseStreamPacket(parser *protocol.ProtocolParser, event *
 	if unResolvedMessage != nil {
 		if unResolvedMessage.size > attributes.GetLength() {
 			unResolvedMessage.resetSize(attributes.GetLength())
-			attributes.SetData(unResolvedMessage.data)
 		}
+		attributes.SetData(unResolvedMessage.data)
 		// Clean UnResolveMessage
 		sp.putUnResolveMessage(nil, isRequest)
 	} else {
