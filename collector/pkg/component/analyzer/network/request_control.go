@@ -258,6 +258,7 @@ func (sp *streamPair) parseAndMergeNewStreamPacket(parser *protocol.ProtocolPars
 			// Skip Parse failed Data
 			return nil
 		}
+		unResolvedMessage.attributes = attributes
 	}
 	if unResolvedMessage.size < attributes.GetLength() {
 		// Wait Next Pkt
@@ -376,15 +377,8 @@ func (sp *streamPair) getStreamTimeoutMessagePairs(parser *protocol.ProtocolPars
 	}
 
 	mps := make([]*messagePair, 0)
-	unResolveRequestEvt := sp.getUnResolveMessage(true)
-	if unResolveRequestEvt != nil && int64(unResolveRequestEvt.endTime)/1000000000 <= noResponseEndTime {
-		sp.matchUnResolveEvent(parser, true, unResolveRequestEvt, &mps)
-	}
-
-	unResolveResponseEvt := sp.getUnResolveMessage(false)
-	if unResolveResponseEvt != nil && int64(unResolveResponseEvt.endTime)/1000000000 <= noResponseEndTime {
-		sp.matchUnResolveEvent(parser, false, unResolveResponseEvt, &mps)
-	}
+	sp.getTimeoutUnResolvedEvt(parser, true, noResponseEndTime, mps)
+	sp.getTimeoutUnResolvedEvt(parser, false, noResponseEndTime, mps)
 
 	sp.requestCache.Range(func(k, v interface{}) bool {
 		request := v.(*streamMessage)
@@ -396,6 +390,17 @@ func (sp *streamPair) getStreamTimeoutMessagePairs(parser *protocol.ProtocolPars
 		return true
 	})
 	return mps
+}
+
+func (sp *streamPair) getTimeoutUnResolvedEvt(parser *protocol.ProtocolParser, isRequest bool, noResponseEndTime int64, mps []*messagePair) {
+	unResolveEvt := sp.getUnResolveMessage(isRequest)
+	if unResolveEvt != nil && int64(unResolveEvt.endTime)/1000000000 <= noResponseEndTime {
+		if unResolveEvt.attributes == nil {
+			sp.putUnResolveMessage(nil, isRequest)
+		} else {
+			sp.matchUnResolveEvent(parser, isRequest, unResolveEvt, &mps)
+		}
+	}
 }
 
 func (sp *streamPair) matchUnResolveEvent(parser *protocol.ProtocolParser, isRequest bool, unResolvedMessage *streamMessage, mps *[]*messagePair) {
