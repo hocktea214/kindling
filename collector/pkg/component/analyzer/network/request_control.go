@@ -81,13 +81,14 @@ func (cache *requestCache) cacheRequest(event *model.KindlingEvent, isRequest bo
 		if cache.reChecker.reCheck() {
 			streamParser := getMatchStreamParser(event, isRequest, cache.protocolMap)
 			if streamParser != nil {
+				maxPayloadLength := cache.sequencePair.maxPayloadLength
 				// Clean SequencePair Data
 				cache.sequencePair = nil
 				cache.sequenceParsers = nil
 				cache.reChecker = nil
 
 				cache.parser = streamParser
-				cache.streamPair = newStreamPair(cache.sequencePair.maxPayloadLength)
+				cache.streamPair = newStreamPair(maxPayloadLength)
 				return cache.streamPair.cacheRequest(cache.parser, event, isRequest)
 			}
 		}
@@ -213,16 +214,16 @@ func (sp *streamPair) putUnResolveMessage(message *streamMessage, isRequest bool
 func (sp *streamPair) cacheRequest(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool) []*messagePair {
 	unResolvedMessage := sp.getUnResolveMessage(isRequest)
 	if unResolvedMessage == nil {
-		return sp.parseNewStreamPacket(parser, event, isRequest)
+		return sp.parseNewPacket(parser, event, isRequest)
 	} else {
-		return sp.parseAndMergeNewStreamPacket(parser, event, isRequest, unResolvedMessage)
+		return sp.parseAndMergeNewPacket(parser, event, isRequest, unResolvedMessage)
 	}
 }
 
-func (sp *streamPair) parseNewStreamPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool) []*messagePair {
+func (sp *streamPair) parseNewPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool) []*messagePair {
 	attributes, waitNextPkt := parser.ParseStreamHead(event.GetData(), event.GetResVal(), isRequest)
 	if waitNextPkt {
-		// Save And Wait Next Pkt
+		// Size is less than HeadSize, save And Wait Next Pkt
 		sp.putUnResolveMessage(newStreamMessage(newMergableEvent(event), nil), isRequest)
 		return nil
 	}
@@ -231,46 +232,68 @@ func (sp *streamPair) parseNewStreamPacket(parser *protocol.ProtocolParser, even
 		return nil
 	}
 	unResolvedMessage := newStreamMessage(newMergableEvent(event), attributes)
-	nextPktIndex := attributes.GetLength()
-	if nextPktIndex > unResolvedMessage.size {
-		// Wait Next Pkt
+	if unResolvedMessage.size < attributes.GetLength() {
+		// Size is less than PktSize, save and Wait Next Pkt
 		sp.putUnResolveMessage(unResolvedMessage, isRequest)
 		return nil
 	}
-
-	return sp.splitParseStreamPacket(parser, event, isRequest, unResolvedMessage, nextPktIndex)
+	return sp.splitParsePacket(parser, event, isRequest, unResolvedMessage)
 }
 
-func (sp *streamPair) parseAndMergeNewStreamPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool, unResolvedMessage *streamMessage) []*messagePair {
+func (sp *streamPair) parseAndMergeNewPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool, unResolvedMessage *streamMessage) []*messagePair {
 	attributes := unResolvedMessage.attributes
-	var (
-		waitNextPkt bool
-	)
-	// Merge NewEvent
+	// Merge New Event
 	unResolvedMessage.mergeEvent(event, sp.maxPayloadLength)
+	// Parse Head
 	if attributes == nil {
-		attributes, waitNextPkt = parser.ParseStreamHead(unResolvedMessage.data, unResolvedMessage.size, isRequest)
-		if waitNextPkt {
-			// Wait Next Pkt
+		var waitNextPkt bool
+		if attributes, waitNextPkt = parser.ParseStreamHead(unResolvedMessage.data, unResolvedMessage.size, isRequest); waitNextPkt {
+			// Size is less than HeadSize, wait Next Pkt
 			return nil
 		}
 		if attributes == nil {
 			// Skip Parse failed Data
+			sp.putUnResolveMessage(nil, isRequest)
 			return nil
 		}
 		unResolvedMessage.attributes = attributes
+	} else {
+		attributes.SetData(unResolvedMessage.data)
 	}
 	if unResolvedMessage.size < attributes.GetLength() {
-		// Wait Next Pkt
+		// Size is less than PktSize, wait Next Pkt
 		return nil
 	}
-	nextPktIndex := attributes.GetLength() - unResolvedMessage.size + event.GetResVal()
-	return sp.splitParseStreamPacket(parser, event, isRequest, unResolvedMessage, nextPktIndex)
+	return sp.splitParsePacket(parser, event, isRequest, unResolvedMessage)
 }
 
-func (sp *streamPair) splitParseStreamPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool, unResolvedMessage *streamMessage, nextPktIndex int64) []*messagePair {
+func (sp *streamPair) splitParsePacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool, unResolvedMessage *streamMessage) []*messagePair {
 	mps := make([]*messagePair, 0)
 	attributes := unResolvedMessage.attributes
+	/*
+	   Packed Pkts                             New Pkts
+	   +====================+----------+       +============+----------+
+	   | Pkt_0   |  Pkt_0'  |  Pkt_1   |       |   Pkt_0    |  Pkt_1   |
+	   +=========+==========+----------+       +============+----------+
+	   |<===== Length =====>|                  |<= Length =>|
+	             |<====== ResVal =====>|       |<======= ResVal ======>|
+	   |<=========== Size ============>|       |<======== Size =======>|
+	             ^          ^                  ^            ^
+	             |          |                  |            |
+	             0      nextPktIndex           0      nextPktIndex
+	*/
+	nextPktIndex := attributes.GetLength() + event.GetResVal() - unResolvedMessage.size
+	// Reset Payload Length Data
+	unResolvedMessage.mergableEvent.resetSize(attributes.GetLength())
+
+	// Parse First Whole Packet.
+	mp := sp.parseAndMatchPacket(parser, event, isRequest, unResolvedMessage, attributes)
+	if mp != nil {
+		mps = append(mps, mp)
+	}
+	// Clean UnResolveMessage
+	sp.putUnResolveMessage(nil, isRequest)
+
 	var waitNextPkt bool
 	/*
 	   UnPack & Pack Packet
@@ -283,62 +306,50 @@ func (sp *streamPair) splitParseStreamPacket(parser *protocol.ProtocolParser, ev
 	             +========|-----------|==========+----------+
 	*/
 	for nextPktIndex <= event.GetResVal() {
-		mp := sp.parseStreamPacket(parser, event, isRequest, unResolvedMessage, attributes)
-		if mp != nil {
-			mps = append(mps, mp)
-			unResolvedMessage = nil
-		}
 		// Complete Packet Or Trunacted Packet
 		if nextPktIndex == event.GetResVal() || nextPktIndex >= int64(len(event.GetData())) {
 			return mps
 		}
+
 		/**
 		 * Loop anaylze Next Split Message
 		 */
-		attributes, waitNextPkt = parser.ParseStreamHead(event.GetData()[nextPktIndex:], event.GetResVal()-nextPktIndex, isRequest)
-		if waitNextPkt {
-			// Wait Next Pkt
-			sp.putUnResolveMessage(newStreamMessage(newMergableEventWithSize(event, event.GetResVal()-nextPktIndex, event.GetData()[nextPktIndex:]), nil), isRequest)
+		data := event.GetData()[nextPktIndex:]
+		size := event.GetResVal() - nextPktIndex
+		if attributes, waitNextPkt = parser.ParseStreamHead(data, size, isRequest); waitNextPkt {
+			// Size is less than HeadSize, save And Wait Next Pkt
+			sp.putUnResolveMessage(newStreamMessage(newMergableEventWithSize(event, data, size), nil), isRequest)
 			return mps
 		}
 		if attributes == nil {
-			// Skip Not Match Data(Truncated Message)
+			// Skip Parse failed Data(Truncated Message)
 			return mps
 		}
-		nextPktIndex += attributes.GetLength()
-	}
 
-	if unResolvedMessage == nil {
-		/**
-		  The last stream Packet (Pkt_1) in first unpacked Packet
-		            +--------+-------+
-		  SysCall_0 | Pkt_0  | Pkt_1 |
-		            +--------+-------+
-		            +--------+-------+-----+-------+
-		  SysCall_1 | Pkt_1' | Pkt_2 | ... | Pkt_N |
-		            +--------+-------+-----+-------+
-		*/
-		sp.putUnResolveMessage(newStreamMessage(newMergableEventWithSize(event, nextPktIndex-event.GetResVal(), attributes.GetData()), attributes), isRequest)
+		nextPktIndex += attributes.GetLength()
+		if nextPktIndex > event.GetResVal() {
+			// Size is less than PktSize, save and Wait Next Pkt
+			sp.putUnResolveMessage(newStreamMessage(newMergableEventWithSize(event, data, size), attributes), isRequest)
+			return mps
+		}
+
+		// Parse Next Whole Packet.
+		mp := sp.parseAndMatchPacket(parser, event, isRequest, nil, attributes)
+		if mp != nil {
+			mps = append(mps, mp)
+		}
 	}
 	return mps
 }
 
-func (sp *streamPair) parseStreamPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool, unResolvedMessage *streamMessage, attributes protocol.ProtocolMessage) *messagePair {
+func (sp *streamPair) parseAndMatchPacket(parser *protocol.ProtocolParser, event *model.KindlingEvent, isRequest bool, unResolvedMessage *streamMessage, attributes protocol.ProtocolMessage) *messagePair {
 	// Whole Packet
-	if unResolvedMessage != nil {
-		if unResolvedMessage.size > attributes.GetLength() {
-			unResolvedMessage.resetSize(attributes.GetLength())
-		}
-		attributes.SetData(unResolvedMessage.data)
-		// Clean UnResolveMessage
-		sp.putUnResolveMessage(nil, isRequest)
-	} else {
-		if len(attributes.GetData()) > int(attributes.GetLength()) {
-			attributes.SetData(attributes.GetData()[0:int(attributes.GetLength())])
-		}
+	if len(attributes.GetData()) > int(attributes.GetLength()) {
+		attributes.SetData(attributes.GetData()[0:int(attributes.GetLength())])
 	}
 
 	var mp *messagePair
+	// Load and delete cached request
 	match, _ := sp.requestCache.LoadAndDelete(attributes.GetStreamId())
 	if match != nil {
 		sp.requestCount.Dec()
@@ -348,22 +359,26 @@ func (sp *streamPair) parseStreamPacket(parser *protocol.ProtocolParser, event *
 			mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, nil, request.attributes.GetAttributes())
 		} else if attributes.MergeRequest(request.attributes) && parser.ParsePayload(attributes) {
 			// Send Request/Response Pair
+			var response *mergableEvent
 			if unResolvedMessage != nil {
-				// Use Merged Message
-				mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, unResolvedMessage.mergableEvent, attributes.GetAttributes())
+				// First Merged Message
+				response = unResolvedMessage.mergableEvent
 			} else {
-				mp = newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, newMergableEventWithSize(event, attributes.GetLength(), attributes.GetData()), attributes.GetAttributes())
+				response = newMergableEventWithSize(event, attributes.GetData(), attributes.GetLength())
 			}
+			return newMessagePair(parser.GetProtocol(), attributes.IsReverse(), request.mergableEvent, response, attributes.GetAttributes())
 		}
 	}
 
 	if attributes.IsRequest() && parser.ParsePayload(attributes) {
-		// Save New Request and Wait New Response
+		var requestMessage *mergableEvent
 		if unResolvedMessage != nil {
-			sp.requestCache.Store(attributes.GetStreamId(), newStreamMessage(unResolvedMessage.mergableEvent, attributes))
+			requestMessage = unResolvedMessage.mergableEvent
 		} else {
-			sp.requestCache.Store(attributes.GetStreamId(), newStreamMessage(newMergableEventWithSize(event, attributes.GetLength(), attributes.GetData()), attributes))
+			requestMessage = newMergableEventWithSize(event, attributes.GetData(), attributes.GetLength())
 		}
+		// Save New Request and Wait New Response
+		sp.requestCache.Store(attributes.GetStreamId(), newStreamMessage(requestMessage, attributes))
 		sp.requestCount.Inc()
 	}
 

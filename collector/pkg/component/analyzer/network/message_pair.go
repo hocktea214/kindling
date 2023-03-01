@@ -16,7 +16,7 @@ type mergableEvent struct {
 	mergable bool
 }
 
-func newMergableEventWithSize(evt *model.KindlingEvent, size int64, data []byte) *mergableEvent {
+func newMergableEventWithSize(evt *model.KindlingEvent, data []byte, size int64) *mergableEvent {
 	return &mergableEvent{
 		event:    evt,
 		duration: evt.GetLatency(),
