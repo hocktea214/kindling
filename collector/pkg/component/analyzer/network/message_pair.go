@@ -164,7 +164,7 @@ func (sp *sequencePair) putRequestBack(request *mergableEvent) {
 
 type messagePair struct {
 	protocol   string
-	role       bool
+	reverse    bool
 	request    *mergableEvent
 	response   *mergableEvent
 	attributes *model.AttributeMap
@@ -173,11 +173,43 @@ type messagePair struct {
 func newMessagePair(protocol string, reverse bool, request *mergableEvent, response *mergableEvent, attributes *model.AttributeMap) *messagePair {
 	return &messagePair{
 		protocol:   protocol,
-		role:       request.event.Ctx.FdInfo.Role != reverse, // xor operate
+		reverse:    reverse,
 		request:    request,
 		response:   response,
 		attributes: attributes,
 	}
+}
+
+func (mp *messagePair) GetRole() bool {
+	return mp.request.event.Ctx.FdInfo.Role != mp.reverse // xor operate
+}
+
+func (mp *messagePair) GetSip() string {
+	if mp.reverse {
+		return mp.request.event.GetDip()
+	}
+	return mp.request.event.GetSip()
+}
+
+func (mp *messagePair) GetSport() uint32 {
+	if mp.reverse {
+		return mp.request.event.GetDport()
+	}
+	return mp.request.event.GetSport()
+}
+
+func (mp *messagePair) GetDip() string {
+	if mp.reverse {
+		return mp.request.event.GetSip()
+	}
+	return mp.request.event.GetDip()
+}
+
+func (mp *messagePair) GetDport() uint32 {
+	if mp.reverse {
+		return mp.request.event.GetSport()
+	}
+	return mp.request.event.GetDport()
 }
 
 func (mp *messagePair) getSentTime() int64 {
