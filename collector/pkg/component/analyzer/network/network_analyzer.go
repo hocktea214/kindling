@@ -131,7 +131,7 @@ func (na *NetworkAnalyzer) Start() error {
 		if protocolParser != nil {
 			na.protocolMap[protocolName] = protocolParser
 			disableDiscern, ok := disableDisernProtocols[protocolName]
-			if !protocolParser.IsStreamParser() && (!ok || !disableDiscern) {
+			if !ok || !disableDiscern {
 				parsers = append(parsers, protocolParser)
 			}
 		}

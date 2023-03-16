@@ -10,16 +10,15 @@ import (
 )
 
 type requestCache struct {
-	parser          *protocol.ProtocolParser
-	streamPair      *streamPair
-	reChecker       *noSupportCounter
-	protocolMap     map[string]*protocol.ProtocolParser
-	sequenceParsers []*protocol.ProtocolParser
-	sequencePair    *sequencePair
-	count           int
+	parser       *protocol.ProtocolParser
+	streamPair   *streamPair
+	reChecker    *noSupportCounter
+	parsers      []*protocol.ProtocolParser
+	sequencePair *sequencePair
+	count        int
 }
 
-func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap map[uint32]string, protocolMap map[string]*protocol.ProtocolParser, pairParsers []*protocol.ProtocolParser, maxPayloadLength int) *requestCache {
+func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap map[uint32]string, protocolMap map[string]*protocol.ProtocolParser, parsers []*protocol.ProtocolParser, maxPayloadLength int) *requestCache {
 	// Static Port
 	if staticProtocol, found := staticPortMap[event.GetDport()]; found {
 		if parser, exist := protocolMap[staticProtocol]; exist {
@@ -37,7 +36,7 @@ func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap m
 		}
 	}
 	// Loop Stream Protocols
-	streamParser := getMatchStreamParser(event, isRequest, protocolMap)
+	streamParser := getMatchStreamParser(event, isRequest, parsers)
 	if streamParser != nil {
 		return &requestCache{
 			parser:     streamParser,
@@ -46,10 +45,9 @@ func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap m
 	}
 
 	return &requestCache{
-		sequenceParsers: pairParsers,
-		sequencePair:    newSequencePair(maxPayloadLength),
-		protocolMap:     protocolMap,
-		reChecker:       newNoSupportCounter(),
+		parsers:      parsers,
+		sequencePair: newSequencePair(maxPayloadLength),
+		reChecker:    newNoSupportCounter(),
 	}
 }
 
@@ -79,12 +77,12 @@ func (cache *requestCache) cacheRequest(event *model.KindlingEvent, isRequest bo
 		   Provide Fault-tolerant mechanism for streamParser
 		*/
 		if cache.reChecker.reCheck() {
-			streamParser := getMatchStreamParser(event, isRequest, cache.protocolMap)
+			streamParser := getMatchStreamParser(event, isRequest, cache.parsers)
 			if streamParser != nil {
 				maxPayloadLength := cache.sequencePair.maxPayloadLength
 				// Clean SequencePair Data
 				cache.sequencePair = nil
-				cache.sequenceParsers = nil
+				cache.parsers = nil
 				cache.reChecker = nil
 
 				cache.parser = streamParser
@@ -102,8 +100,8 @@ func (cache *requestCache) cacheRequest(event *model.KindlingEvent, isRequest bo
 	}
 }
 
-func getMatchStreamParser(event *model.KindlingEvent, isRequest bool, protocolMap map[string]*protocol.ProtocolParser) *protocol.ProtocolParser {
-	for _, parser := range protocolMap {
+func getMatchStreamParser(event *model.KindlingEvent, isRequest bool, parsers []*protocol.ProtocolParser) *protocol.ProtocolParser {
+	for _, parser := range parsers {
 		if parser.IsStreamParser() && parser.Check(event.GetData(), event.GetResVal(), isRequest) {
 			return parser
 		}
@@ -121,11 +119,13 @@ func (cache *requestCache) getSequenceMessagePairs(sequencePair *sequencePair) [
 		return sequencePair.getMessagePairs(cache.parser.GetProtocol(), attributes)
 	}
 	// Loop All SequenceParser Protocols
-	for _, sequenceParser := range cache.sequenceParsers {
-		attributes := cache.parseSequencePairAttributes(sequencePair, sequenceParser)
-		if attributes != nil {
-			cache.reChecker.addCount(sequenceParser.GetProtocol())
-			return sequencePair.getMessagePairs(sequenceParser.GetProtocol(), attributes)
+	for _, sequenceParser := range cache.parsers {
+		if !sequenceParser.IsStreamParser() {
+			attributes := cache.parseSequencePairAttributes(sequencePair, sequenceParser)
+			if attributes != nil {
+				cache.reChecker.addCount(sequenceParser.GetProtocol())
+				return sequencePair.getMessagePairs(sequenceParser.GetProtocol(), attributes)
+			}
 		}
 	}
 	cache.reChecker.addCount(protocol.NOSUPPORT)
