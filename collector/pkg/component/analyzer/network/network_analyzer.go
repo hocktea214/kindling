@@ -208,10 +208,15 @@ func (na *NetworkAnalyzer) consumerFdNoReusingTrace() {
 }
 
 func (na *NetworkAnalyzer) analyseRequest(evt *model.KindlingEvent, isRequest bool) error {
-	var cache *requestCache
+	var cache *requestCache = nil
 	if cacheInterface, exist := na.requestMonitor.Load(evt.GetSocketKey()); exist {
 		cache = cacheInterface.(*requestCache)
-	} else {
+		if tcpTupleEqual(cache.tcpTuple, getTcpTuple(evt)) == false {
+			cache = nil
+			na.requestMonitor.Delete(evt.GetSocketKey())
+		}
+	}
+	if cache == nil {
 		cache = newRequestCache(evt, isRequest, na.staticPortMap, na.protocolMap, na.parsers, na.snaplen)
 		na.requestMonitor.Store(evt.GetSocketKey(), cache)
 	}

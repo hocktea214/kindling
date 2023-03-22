@@ -16,9 +16,26 @@ type requestCache struct {
 	parsers      []*protocol.ProtocolParser
 	sequencePair *sequencePair
 	count        int
+	tcpTuple     [4]uint32
+}
+
+func getTcpTuple(event *model.KindlingEvent) [4]uint32 {
+	sport := event.GetSport()
+	dport := event.GetDport()
+	sip := event.GetCtx().FdInfo.Sip[0]
+	dip := event.GetCtx().FdInfo.Dip[0]
+	return [4]uint32{sport, dport, sip, dip}
+}
+
+func tcpTupleEqual(a, b [4]uint32) bool {
+	if a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3] {
+		return true
+	}
+	return false
 }
 
 func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap map[uint32]string, protocolMap map[string]*protocol.ProtocolParser, parsers []*protocol.ProtocolParser, maxPayloadLength int) *requestCache {
+	tuple := getTcpTuple(event)
 	// Static Port
 	if staticProtocol, found := staticPortMap[event.GetDport()]; found {
 		if parser, exist := protocolMap[staticProtocol]; exist {
@@ -26,11 +43,13 @@ func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap m
 				return &requestCache{
 					parser:     parser,
 					streamPair: newStreamPair(maxPayloadLength),
+					tcpTuple:   tuple,
 				}
 			} else {
 				return &requestCache{
 					parser:       parser,
 					sequencePair: newSequencePair(maxPayloadLength),
+					tcpTuple:     tuple,
 				}
 			}
 		}
@@ -41,6 +60,7 @@ func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap m
 		return &requestCache{
 			parser:     streamParser,
 			streamPair: newStreamPair(maxPayloadLength),
+			tcpTuple:   tuple,
 		}
 	}
 
@@ -48,6 +68,7 @@ func newRequestCache(event *model.KindlingEvent, isRequest bool, staticPortMap m
 		parsers:      parsers,
 		sequencePair: newSequencePair(maxPayloadLength),
 		reChecker:    newNoSupportCounter(),
+		tcpTuple:     tuple,
 	}
 }
 
