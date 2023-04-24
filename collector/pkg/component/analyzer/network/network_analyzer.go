@@ -211,7 +211,12 @@ func (na *NetworkAnalyzer) analyseRequest(evt *model.KindlingEvent, isRequest bo
 	var cache *requestCache = nil
 	if cacheInterface, exist := na.requestMonitor.Load(evt.GetSocketKey()); exist {
 		cache = cacheInterface.(*requestCache)
+		// check to avoid different protocol packet reusing the same file descriptor
 		if tcpTupleEqual(cache.tcpTuple, getTcpTuple(evt)) == false {
+			// if  fd holds sequencePair packet, analyze it first
+			if cache.sequencePair != nil && cache.sequencePair.request != nil {
+				na.distributeTraceMetric(cache, cache.getSequenceMessagePairs(cache.sequencePair.getAndResetSequencePair()))
+			}
 			cache = nil
 			na.requestMonitor.Delete(evt.GetSocketKey())
 		}
