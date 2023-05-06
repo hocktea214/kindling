@@ -9,7 +9,6 @@ import (
 	"github.com/Kindling-project/kindling/collector/pkg/aggregator"
 	"github.com/Kindling-project/kindling/collector/pkg/aggregator/defaultaggregator"
 	"github.com/Kindling-project/kindling/collector/pkg/component"
-	"github.com/Kindling-project/kindling/collector/pkg/component/analyzer/cpuanalyzer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer/processor"
 	"github.com/Kindling-project/kindling/collector/pkg/model"
@@ -119,7 +118,8 @@ func (p *AggregateProcessor) Consume(dataGroup *model.DataGroup) error {
 		// trace recordersMap should not be recorded again, otherwise the percentiles will be much higher.
 		if p.isSampled(dataGroup) {
 			dataGroup.Name = constnames.SingleNetRequestMetricGroup
-			cpuanalyzer.ReceiveDataGroupAsSignal(dataGroup)
+			//cpuanalyzer.ReceiveDataGroupAsSignal(dataGroup)
+
 			abnormalDataErr = p.nextConsumer.Consume(dataGroup)
 		}
 		dataGroup.Name = constnames.AggregatedNetRequestMetricGroup
