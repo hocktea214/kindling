@@ -100,6 +100,22 @@ void suppress_events_comm(string comm) {
 void set_eventmask(sinsp* inspector) {
   inspector->clear_eventmask();
   const enum ppm_event_type enables[] = {
+      PPME_SYSCALL_WRITEV_E,
+      PPME_SYSCALL_WRITEV_X,
+      PPME_SYSCALL_READV_E,
+      PPME_SYSCALL_READV_X,
+      PPME_SYSCALL_WRITE_E,
+      PPME_SYSCALL_WRITE_X,
+      PPME_SYSCALL_READ_E,
+      PPME_SYSCALL_READ_X,
+      PPME_SOCKET_SENDTO_E,
+      PPME_SOCKET_SENDTO_X,
+      PPME_SOCKET_RECVFROM_E,
+      PPME_SOCKET_RECVFROM_X,
+      PPME_SOCKET_SENDMSG_E,
+      PPME_SOCKET_SENDMSG_X,
+      PPME_SOCKET_RECVMSG_E,
+      PPME_SOCKET_RECVMSG_X
       // add event type (no sub_event trigger) here to collect
   };
   for (auto event : enables) {
