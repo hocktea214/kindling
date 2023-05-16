@@ -2,6 +2,8 @@ package cameraexporter
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/Kindling-project/kindling/collector/pkg/component"
 	"github.com/Kindling-project/kindling/collector/pkg/component/consumer/exporter"
 	"github.com/Kindling-project/kindling/collector/pkg/esclient"
@@ -25,6 +27,11 @@ func New(config interface{}, telemetry *component.TelemetryTools) exporter.Expor
 		config:    cfg,
 		telemetry: telemetry,
 	}
+	if os.Getenv("bench_close_export_es") == "true" {
+		ret.writer = &noOperationWriter{}
+		return ret
+	}
+
 	switch cfg.Storage {
 	case storageElasticsearch:
 		writer, err := newEsWriter(cfg.EsConfig)
@@ -53,6 +60,16 @@ func (e *CameraExporter) Consume(dataGroup *model.DataGroup) error {
 type writer interface {
 	write(dataGroup *model.DataGroup)
 	name() string
+}
+
+type noOperationWriter struct {
+}
+
+func (noop *noOperationWriter) write(group *model.DataGroup) {
+}
+
+func (noop *noOperationWriter) name() string {
+	return "noop"
 }
 
 type esWriter struct {

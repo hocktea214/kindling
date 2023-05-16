@@ -23,6 +23,8 @@ int MAX_USERATTR_NUM = 8;
 map<string, ppm_event_type> m_events;
 map<string, Category> m_categories;
 vector<QObject*> qls;
+map<int64_t, bool> profile_pids;
+bool close_relate_onoff;
 
 bool is_start_profile = false;
 bool all_attach = true;
@@ -122,7 +124,30 @@ void set_snaplen(sinsp* inspector) {
   inspector->set_snaplen(snaplen);
 }
 
+bool set_profiled_pids() {
+  char* env_pids = getenv("bench_pids");
+  if (env_pids == nullptr) {
+    return false;
+  }
+  char *token = strtok(env_pids, ",");
+  int i = 0;
+  while (token != NULL && i < 4) {
+    profile_pids[static_cast<int64_t>(atoi(token))] = true;
+    token = strtok(NULL, ",");
+  }
+  return true;
+}
+
 int init_probe() {
+  if (set_profiled_pids() == false) {
+    fprintf(stderr, "[Start Failed] Env variable bench_pids is not set\n");
+    return 1;
+  }
+  char* env_relate_onoff = getenv("bench_close_probe_relate");
+  if (env_relate_onoff !=NULL && strncmp("true", env_relate_onoff, sizeof(env_relate_onoff)) == 0) {
+    close_relate_onoff = true;
+  }
+
   int argc = 1;
   QCoreApplication app(argc, 0);
 
@@ -172,6 +197,11 @@ int getEvent(void** pp_kindling_event) {
     return -1;
   }
   auto threadInfo = ev->get_thread_info();
+  auto profilePid = profile_pids.find(threadInfo->m_pid);
+  if (profilePid == profile_pids.end()) {
+    // Ignore NotProfiled Event.
+    return -1;
+  }
   if (is_start_profile &&
       (ev->get_type() == PPME_SYSCALL_EXECVE_8_X || ev->get_type() == PPME_SYSCALL_EXECVE_13_X ||
        ev->get_type() == PPME_SYSCALL_EXECVE_15_X || ev->get_type() == PPME_SYSCALL_EXECVE_16_X ||
@@ -205,7 +235,7 @@ int getEvent(void** pp_kindling_event) {
   p_kindling_event = (kindling_event_t_for_go*)*pp_kindling_event;
   uint16_t userAttNumber = 0;
   uint16_t source = get_kindling_source(ev->get_type());
-  if (is_start_profile) {
+  if (is_start_profile && close_relate_onoff == false) {
     for (auto it = qls.begin(); it != qls.end(); it++) {
       KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
       if (plugin) {
@@ -214,7 +244,7 @@ int getEvent(void** pp_kindling_event) {
     }
   }
 
-  if (is_start_profile && ev->get_type() == PPME_SYSCALL_WRITE_X && fdInfo != nullptr &&
+  if (is_start_profile && close_relate_onoff == false && ev->get_type() == PPME_SYSCALL_WRITE_X && fdInfo != nullptr &&
       fdInfo->is_file()) {
     auto data_param = ev->get_param_value_raw("data");
     if (data_param != nullptr) {

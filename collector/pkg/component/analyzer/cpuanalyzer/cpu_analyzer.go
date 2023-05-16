@@ -2,7 +2,9 @@ package cpuanalyzer
 
 import (
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +36,7 @@ type CpuAnalyzer struct {
 	telemetry            *component.TelemetryTools
 	tidExpiredQueue      *tidDeleteQueue
 	javaTraces           map[string]*TransactionIdEvent
+	profilePids          []int64
 	nextConsumers        []consumer.Consumer
 	metadata             *kubernetes.K8sMetaDataCache
 }
@@ -48,8 +51,15 @@ func (ca *CpuAnalyzer) ConsumableEvents() []string {
 
 func NewCpuAnalyzer(cfg interface{}, telemetry *component.TelemetryTools, consumers []consumer.Consumer) analyzer.Analyzer {
 	config, _ := cfg.(*Config)
+	benchPids := strings.Split(os.Getenv("bench_pids"), ",")
+	profilePids := make([]int64, len(benchPids))
+	for i := range benchPids {
+		valueInt, _ := strconv.Atoi(benchPids[i])
+		profilePids[i] = int64(valueInt)
+	}
 	ca := &CpuAnalyzer{
 		cfg:           config,
+		profilePids:   profilePids,
 		telemetry:     telemetry,
 		nextConsumers: consumers,
 		routineSize:   atomic.NewInt32(0),
@@ -60,6 +70,11 @@ func NewCpuAnalyzer(cfg interface{}, telemetry *component.TelemetryTools, consum
 	ca.javaTraces = make(map[string]*TransactionIdEvent, 100000)
 	go ca.TidDelete(30*time.Second, 10*time.Second)
 	go ca.sampleSend()
+
+	profilePeriod, _ := strconv.Atoi(os.Getenv("bench_trigger_profile_period"))
+	if profilePeriod > 0 {
+		go ca.triggerProfile(profilePeriod)
+	}
 	newSelfMetrics(telemetry.MeterProvider, ca)
 	return ca
 }
@@ -338,4 +353,27 @@ func (ca *CpuAnalyzer) trimExitedThread(pid uint32, tid uint32) {
 
 	cacheElem := deleteTid{pid: pid, tid: tid, exitTime: time.Now()}
 	ca.tidExpiredQueue.Push(cacheElem)
+}
+
+func (ca *CpuAnalyzer) triggerProfile(period int) {
+	timer := time.NewTicker(time.Duration(period) * time.Second)
+	for {
+		select {
+		case <-timer.C:
+			now := time.Now().UnixNano()
+			for _, pid := range ca.profilePids {
+				labels := model.NewAttributeMapWithValues(map[string]model.AttributeValue{
+					constlabels.IsSlow:     model.NewBoolValue(true),
+					constlabels.Pid:        model.NewIntValue(pid),
+					constlabels.Protocol:   model.NewStringValue("http"),
+					constlabels.ContentKey: model.NewStringValue("/"),
+					"isInstallApm":         model.NewBoolValue(true),
+					constlabels.IsServer:   model.NewBoolValue(true),
+				})
+				metric := model.NewIntMetric(constvalues.RequestTotalTime, int64(period)*1000000000)
+				dataGroup := model.NewDataGroup(constnames.SpanEvent, labels, uint64(now-int64(period)*1000000000), metric)
+				ReceiveDataGroupAsSignal(dataGroup)
+			}
+		}
+	}
 }
