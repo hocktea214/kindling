@@ -23,7 +23,7 @@ class cpu_converter {
   ~cpu_converter();
 
   int convert(kindling_event_t_for_go* p_kindling_event, sinsp_evt* cpu_evt, vector<QObject*> qls,
-              bool is_profile_debug, int64_t debug_pid, int64_t debug_tid);
+              bool is_profile_debug, int64_t debug_pid, int64_t debug_tid, bool close_relate_onoff);
 
   bool Cache(sinsp_evt* evt);
 
@@ -33,7 +33,7 @@ class cpu_converter {
   int add_threadinfo(kindling_event_t_for_go* p_kindling_event, sinsp_evt* sevt);
 
   int add_cpu_data(kindling_event_t_for_go* p_kindling_event, sinsp_evt* sevt, vector<QObject*> qls,
-                   bool is_profile_debug, int64_t debug_pid, int64_t debug_tid);
+                   bool is_profile_debug, int64_t debug_pid, int64_t debug_tid, bool close_relate_onoff);
 
   int32_t set_boot_time(uint64_t* boot_time);
 

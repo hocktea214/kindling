@@ -16,11 +16,11 @@ cpu_converter::~cpu_converter() {}
 
 int cpu_converter::convert(kindling_event_t_for_go* p_kindling_event, sinsp_evt* cpu_evt,
                            vector<QObject*> qls, bool is_profile_debug, int64_t debug_pid,
-                           int64_t debug_tid) {
+                           int64_t debug_tid, bool close_relate_onoff) {
   // convert
   init_kindling_event(p_kindling_event, cpu_evt);
   add_threadinfo(p_kindling_event, cpu_evt);
-  add_cpu_data(p_kindling_event, cpu_evt, qls, is_profile_debug, debug_pid, debug_tid);
+  add_cpu_data(p_kindling_event, cpu_evt, qls, is_profile_debug, debug_pid, debug_tid, close_relate_onoff);
   return 1;
 }
 
@@ -44,7 +44,7 @@ int cpu_converter::add_threadinfo(kindling_event_t_for_go* p_kindling_event, sin
 
 int cpu_converter::add_cpu_data(kindling_event_t_for_go* p_kindling_event, sinsp_evt* sevt,
                                 vector<QObject*> qls, bool is_profile_debug, int64_t debug_pid,
-                                int64_t debug_tid) {
+                                int64_t debug_tid, bool close_relate_onoff) {
   uint64_t start_time = *reinterpret_cast<uint64_t*>(sevt->get_param_value_raw("start_ts")->m_val);
   uint64_t end_time = *reinterpret_cast<uint64_t*>(sevt->get_param_value_raw("end_ts")->m_val);
   uint32_t cnt = *reinterpret_cast<uint32_t*>(sevt->get_param_value_raw("cnt")->m_val);
@@ -130,10 +130,12 @@ int cpu_converter::add_cpu_data(kindling_event_t_for_go* p_kindling_event, sinsp
   // on_stack
   auto s_tinfo = sevt->get_thread_info();
   string data = "";
-  for (auto it = qls.begin(); it != qls.end(); it++) {
-    KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
-    if (plugin) {
-      data.append(plugin->getCache(s_tinfo->m_tid, on_time, off_type, false, false, true));
+  if (close_relate_onoff == false) {
+    for (auto it = qls.begin(); it != qls.end(); it++) {
+      KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
+      if (plugin) {
+        data.append(plugin->getCache(s_tinfo->m_tid, on_time, off_type, false, false, true));
+      }
     }
   }
   if (data != "") {
@@ -145,10 +147,12 @@ int cpu_converter::add_cpu_data(kindling_event_t_for_go* p_kindling_event, sinsp
   }
 
   string log_msg = "";
-  for (auto it = qls.begin(); it != qls.end(); it++) {
-    KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
-    if (plugin) {
-      log_msg.append(plugin->getCache(s_tinfo->m_tid, on_time, off_type, false, true, false));
+  if (close_relate_onoff == false) {
+    for (auto it = qls.begin(); it != qls.end(); it++) {
+      KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
+      if (plugin) {
+        log_msg.append(plugin->getCache(s_tinfo->m_tid, on_time, off_type, false, true, false));
+      }
     }
   }
   if (log_msg != "") {
@@ -160,10 +164,12 @@ int cpu_converter::add_cpu_data(kindling_event_t_for_go* p_kindling_event, sinsp
   }
 
   string on_info = "";
-  for (auto it = qls.begin(); it != qls.end(); it++) {
-    KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
-    if (plugin) {
-      on_info.append(plugin->getCache(s_tinfo->m_tid, on_time, off_type, false, false, false));
+  if (close_relate_onoff == false) {
+    for (auto it = qls.begin(); it != qls.end(); it++) {
+      KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
+      if (plugin) {
+        on_info.append(plugin->getCache(s_tinfo->m_tid, on_time, off_type, false, false, false));
+      }
     }
   }
 
@@ -174,10 +180,12 @@ int cpu_converter::add_cpu_data(kindling_event_t_for_go* p_kindling_event, sinsp
   userAttNumber++;
 
   string info = "";
-  for (auto it = qls.begin(); it != qls.end(); it++) {
-    KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
-    if (plugin) {
-      info.append(plugin->getCache(s_tinfo->m_tid, off_time, off_type, true, false, false));
+  if (close_relate_onoff == false) {
+    for (auto it = qls.begin(); it != qls.end(); it++) {
+      KindlingInterface* plugin = qobject_cast<KindlingInterface*>(*it);
+      if (plugin) {
+        info.append(plugin->getCache(s_tinfo->m_tid, off_time, off_type, true, false, false));
+      }
     }
   }
   strcpy(p_kindling_event->userAttributes[userAttNumber].key, "off_info");

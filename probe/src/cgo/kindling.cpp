@@ -275,7 +275,7 @@ int cpu_processor(sinsp_evt* ev, sinsp_threadinfo* threadInfo, sinsp_fdinfo_t* f
         }
 
         strcpy(p_kindling_event->context.tinfo.comm, tmp_comm);
-        return cpuConverter->convert(p_kindling_event, ev, qls, is_profile_debug, debug_pid, debug_tid);
+        return cpuConverter->convert(p_kindling_event, ev, qls, is_profile_debug, debug_pid, debug_tid, close_relate_onoff);
     }
     return 2;
 
