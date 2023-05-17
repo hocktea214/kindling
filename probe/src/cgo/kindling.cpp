@@ -244,12 +244,8 @@ int cpu_processor(sinsp_evt* ev, sinsp_threadinfo* threadInfo, sinsp_fdinfo_t* f
                 parse_jf(data_val, *data_param, p_kindling_event, threadInfo, userAttNumber);
                 return 1;
             }
-            if (data_param->m_len > 8 && memcmp(data_val, "kd-txin@", 8) == 0) {
-                parse_txin(ev, data_val, *data_param, p_kindling_event, threadInfo, userAttNumber);
-                return 1;
-            }
-            if (data_param->m_len > 9 && memcmp(data_val, "kd-txout@", 9) == 0) {
-                parse_txout(ev, data_val, *data_param, p_kindling_event, threadInfo, userAttNumber);
+            if (data_param->m_len > 8 && memcmp(data_val, "kd-txid@", 8) == 0) {
+                parse_xtid(ev, data_val, *data_param, p_kindling_event, threadInfo, userAttNumber);
                 return 1;
             }
             if (data_param->m_len > 8 && memcmp(data_val, "kd-span@", 8) == 0) {
