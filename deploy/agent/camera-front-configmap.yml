@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: camera-front-config
-  namespace: kindling
+  namespace: kindling-hxy
 data:
   settings.js: |
     const setting = {
