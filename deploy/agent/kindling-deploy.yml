@@ -49,7 +49,7 @@ spec:
           privileged: true
         resources:
           limits:
-            memory: 1Gi
+            memory: 1500Mi
           requests:
             memory: 300Mi
         ports:
@@ -76,24 +76,16 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        - name: MY_POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: MY_POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
         readinessProbe:
           exec:
             command:
-            - cat
-            - /opt/kernel-support
-          initialDelaySeconds: 5
-          periodSeconds: 5
+              - cat
+              - /opt/kernel-support
         volumeMounts:
-        - mountPath: /etc/kindling/config
+        - mountPath: /app/config
           name: kindlingcfg
+        - name: shared-data
+          mountPath: /tmp/kindling
         - mountPath: /sys
           name: sys-vol
         - mountPath: /etc/modprobe.d
@@ -122,8 +114,6 @@ spec:
           name: varrun-vol
         - mountPath: /dev/shm
           name: dshm
-        - mountPath: /var/run/docker.sock
-          name: docker-sock
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
       hostPID: true
@@ -135,9 +125,11 @@ spec:
           defaultMode: 420
           name: kindlingcfg
         name: kindlingcfg
-      - hostPath:
-          path: /var/run/docker.sock
-        name: docker-sock
+      - configMap:
+          name: camera-front-config
+        name: camera-front-config
+      - name: shared-data
+        emptyDir: {}
       - hostPath:
           path: /etc/modprobe.d
         name: modprobe-d
