@@ -176,10 +176,11 @@ func (ca *CpuAnalyzer) sendEvents(keyElements *model.AttributeMap, pid uint32, s
 	startTimeSecond := startTime / nanoToSeconds
 	endTimeSecond := endTime / nanoToSeconds
 
+	tidCount := make(map[uint32]bool, 0)
 	for _, timeSegments := range tidCpuEvents {
 		if endTimeSecond < timeSegments.BaseTime || startTimeSecond > timeSegments.BaseTime+uint64(maxSegmentSize) {
-			ca.telemetry.Logger.Infof("pid=%d tid=%d events are beyond the time windows. BaseTimeSecond=%d, "+
-				"startTimeSecond=%d, endTimeSecond=%d", pid, timeSegments.Tid, timeSegments.BaseTime, startTimeSecond, endTimeSecond)
+			// ca.telemetry.Logger.Infof("pid=%d tid=%d events are beyond the time windows. BaseTimeSecond=%d, "+
+			// 	"startTimeSecond=%d, endTimeSecond=%d", pid, timeSegments.Tid, timeSegments.BaseTime, startTimeSecond, endTimeSecond)
 			continue
 		}
 		startIndex := int(startTimeSecond - timeSegments.BaseTime)
@@ -190,8 +191,6 @@ func (ca *CpuAnalyzer) sendEvents(keyElements *model.AttributeMap, pid uint32, s
 		if endIndex > timeSegments.BaseTime+uint64(maxSegmentSize) {
 			endIndex = timeSegments.BaseTime + uint64(maxSegmentSize)
 		}
-		ca.telemetry.Logger.Infof("pid=%d tid=%d sends events. startSecond=%d, endSecond=%d",
-			pid, timeSegments.Tid, startTimeSecond, endTimeSecond)
 		for i := startIndex; i <= int(endIndex) && i < maxSegmentSize; i++ {
 			val := timeSegments.Segments.GetByIndex(i)
 			if val == nil {
@@ -207,7 +206,10 @@ func (ca *CpuAnalyzer) sendEvents(keyElements *model.AttributeMap, pid uint32, s
 					_ = nexConsumer.Consume(dataGroup)
 				}
 				segment.IsSend = 1
+				tidCount[timeSegments.Tid] = true
 			}
 		}
 	}
+	ca.telemetry.Logger.Infof("pid=%d activeThreads=%d sends events. startSecond=%d, endSecond=%d",
+		pid, len(tidCount), startTimeSecond, endTimeSecond)
 }

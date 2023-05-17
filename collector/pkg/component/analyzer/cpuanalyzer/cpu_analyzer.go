@@ -73,7 +73,7 @@ func NewCpuAnalyzer(cfg interface{}, telemetry *component.TelemetryTools, consum
 
 	profilePeriod, _ := strconv.Atoi(os.Getenv("bench_trigger_profile_period"))
 	if profilePeriod > 0 {
-		go ca.triggerProfile(profilePeriod)
+		go ca.triggerProfile(int64(profilePeriod))
 	}
 	newSelfMetrics(telemetry.MeterProvider, ca)
 	return ca
@@ -355,12 +355,12 @@ func (ca *CpuAnalyzer) trimExitedThread(pid uint32, tid uint32) {
 	ca.tidExpiredQueue.Push(cacheElem)
 }
 
-func (ca *CpuAnalyzer) triggerProfile(period int) {
+func (ca *CpuAnalyzer) triggerProfile(period int64) {
 	timer := time.NewTicker(time.Duration(period) * time.Second)
 	for {
 		select {
 		case <-timer.C:
-			now := time.Now().UnixNano()
+			now := time.Now().Unix()
 			for _, pid := range ca.profilePids {
 				labels := model.NewAttributeMapWithValues(map[string]model.AttributeValue{
 					constlabels.IsSlow:     model.NewBoolValue(true),
@@ -370,8 +370,8 @@ func (ca *CpuAnalyzer) triggerProfile(period int) {
 					"isInstallApm":         model.NewBoolValue(true),
 					constlabels.IsServer:   model.NewBoolValue(true),
 				})
-				metric := model.NewIntMetric(constvalues.RequestTotalTime, int64(period)*1000000000)
-				dataGroup := model.NewDataGroup(constnames.SpanEvent, labels, uint64(now-int64(period)*1000000000), metric)
+				metric := model.NewIntMetric(constvalues.RequestTotalTime, period*1000000000)
+				dataGroup := model.NewDataGroup(constnames.SpanEvent, labels, uint64(now-period)*1000000000, metric)
 				ReceiveDataGroupAsSignal(dataGroup)
 			}
 		}
