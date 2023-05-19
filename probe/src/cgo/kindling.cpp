@@ -25,6 +25,8 @@ map<string, Category> m_categories;
 vector<QObject*> qls;
 map<int64_t, bool> profile_pids;
 bool close_relate_onoff;
+bool no_cgo;
+kindling_event_t_for_go* cache_kindling_event;
 vector<char*> drop_tid_name;
 unordered_map<uint64_t, bool> drop_ptids;
 
@@ -181,6 +183,11 @@ int init_probe() {
   if (env_relate_onoff !=NULL && strncmp("true", env_relate_onoff, sizeof(env_relate_onoff)) == 0) {
     close_relate_onoff = true;
   }
+  char* env_no_cgo = getenv("bench_no_cgo");
+  if (env_no_cgo !=NULL && strncmp("true", env_no_cgo, sizeof(env_no_cgo)) == 0) {
+    no_cgo = true;
+    init_kindling_event_cache();
+  }
 
   int argc = 1;
   QCoreApplication app(argc, 0);
@@ -290,6 +297,9 @@ int get_events_by_interval(uint64_t interval, void *kindlingEvent, void *count){
       break ;
     }
   }
+  if (no_cgo) {
+    return -1;
+  }
   return 0;
 }
 
@@ -348,7 +358,12 @@ int getEvent(uint64_t interval, kindling_event_t_for_go evts[], int* event_count
   if (it != drop_ptids.end()) {
       if_drop = false;
   }
-  kindling_event_t_for_go* p_kindling_event = &evts[*event_count];
+  kindling_event_t_for_go* p_kindling_event;
+  if (no_cgo) {
+    p_kindling_event = cache_kindling_event;
+  } else {
+    p_kindling_event= &evts[*event_count];
+  }
   if (!if_drop) {
       int cpu_processor_res = cpu_processor(ev, threadInfo, fdInfo, p_kindling_event, userAttNumber);
       if(cpu_processor_res == 1) {
@@ -817,6 +832,20 @@ void init_kindling_event(kindling_event_t_for_go evts[], int number) {
     }
   }
 
+}
+
+void init_kindling_event_cache() {
+  cache_kindling_event = (kindling_event_t_for_go*)malloc(sizeof(kindling_event_t_for_go));
+  cache_kindling_event->name = (char*)malloc(sizeof(char) * 1024);
+  cache_kindling_event->context.tinfo.comm = (char*)malloc(sizeof(char) * 256);
+  cache_kindling_event->context.tinfo.containerId = (char*)malloc(sizeof(char) * 256);
+  cache_kindling_event->context.fdInfo.filename = (char*)malloc(sizeof(char) * 1024);
+  cache_kindling_event->context.fdInfo.directory = (char*)malloc(sizeof(char) * 1024);
+
+  for (int i = 0; i < 16; i++) {
+    cache_kindling_event->userAttributes[i].key = (char*)malloc(sizeof(char) * 128);
+    cache_kindling_event->userAttributes[i].value = (char*)malloc(sizeof(char) * EVENT_DATA_SIZE);
+  }
 }
 
 void delete_kindling_event(kindling_event_t_for_go* p_kindling_event) {

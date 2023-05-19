@@ -26,6 +26,7 @@ void exipre_window_cache();
 
 int get_events_by_interval(uint64_t interval, void *kindlingEvent, void *count);
 
+void init_kindling_event_cache();
 int init_kindling_event_for_go(int number, void *kindlingEvent);
 uint16_t get_kindling_category(sinsp_evt* sEvt);
 
