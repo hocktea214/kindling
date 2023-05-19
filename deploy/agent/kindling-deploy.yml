@@ -23,7 +23,7 @@ spec:
               - key: kubernetes.io/hostname
                 operator: In
                 values:
-                - worker-149
+                - worker-32
       containers:
       - name: kindling-camera-front
         image: kindlingproject/kindling-camera-front:latest
@@ -56,6 +56,16 @@ spec:
         - containerPort: 9500
           protocol: TCP
         env:
+        - name: bench_pids
+          value: "100"
+        - name: bench_close_probe_relate
+          value: "false"
+        - name: bench_no_cgo
+          value: "false"
+        - name: bench_trigger_profile_period
+          value: "1"
+        - name: bench_close_export_es
+          value: "false"
         - name: HOST_PROC
           value: /host/proc
         - name: PL_HOST_PATH
