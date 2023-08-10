@@ -601,10 +601,18 @@ func (na *NetworkAnalyzer) getRecords(mps *messagePairs, protocol string, attrib
 		labels.UpdateAddIntValue(constlabels.EndTimestamp, int64(endTimestamp))
 	}
 
-	if len(na.debugProtocol) > 0 && protocol == na.debugProtocol && attributes.IsEmpty() {
-		na.telemetry.Logger.Infof("[x Parse %s] Req: %s", na.debugProtocol, hex.EncodeToString(mps.requests.getData()))
+	if len(na.debugProtocol) > 0 && protocol == na.debugProtocol && (attributes == nil || attributes.IsEmpty()) {
+		l4_protocol := "udp"
+		if evt.IsTcp() {
+			l4_protocol = "tcp"
+		}
+		na.telemetry.Logger.Infof("[x Parse %s] Comm: %s, Fd(%d)[%d -> %d], L4_Protocol: %s, Size: %d, Waiting: %d, Latency: %d, Req: %s", na.debugProtocol, evt.GetComm(),
+			evt.GetFd(), evt.GetSport(), evt.GetDport(), l4_protocol,
+			mps.getRquestSize(), mps.getWaitingTime(), mps.getConnectDuration()+mps.getDuration(), hex.EncodeToString(mps.requests.getData()))
 		if mps.responses != nil {
-			na.telemetry.Logger.Infof("[x Parse %s] Resp: %s", na.debugProtocol, hex.EncodeToString(mps.responses.getData()))
+			na.telemetry.Logger.Infof("[x Parse %s] Comm: %s, Fd(%d)[%d -> %d], L4_Protocol: %s, Size: %d, Resp: %s", na.debugProtocol, evt.GetComm(),
+				evt.GetFd(), evt.GetSport(), evt.GetDport(), l4_protocol,
+				mps.getResponseSize(), hex.EncodeToString(mps.responses.getData()))
 		}
 	}
 	if mps.responses == nil {
