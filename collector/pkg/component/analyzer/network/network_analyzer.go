@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"encoding/hex"
 	"math/rand"
 	"os"
 	"strconv"
@@ -38,6 +39,7 @@ type NetworkAnalyzer struct {
 	nextConsumers []consumer.Consumer
 	conntracker   conntracker.Conntracker
 
+	debugProtocol    string
 	staticPortMap    map[uint32]string
 	slowThresholdMap map[string]int
 	protocolMap      map[string]*protocol.ProtocolParser
@@ -62,6 +64,7 @@ func NewNetworkAnalyzer(cfg interface{}, telemetry *component.TelemetryTools, co
 		dataGroupPool: NewDataGroupPool(),
 		nextConsumers: consumers,
 		telemetry:     telemetry,
+		debugProtocol: os.Getenv("DEBUG_PROTOCOL"),
 	}
 	if config.EnableConntrack {
 		connConfig := &conntracker.Config{
@@ -598,6 +601,12 @@ func (na *NetworkAnalyzer) getRecords(mps *messagePairs, protocol string, attrib
 		labels.UpdateAddIntValue(constlabels.EndTimestamp, int64(endTimestamp))
 	}
 
+	if len(na.debugProtocol) > 0 && protocol == na.debugProtocol && attributes.IsEmpty() {
+		na.telemetry.Logger.Infof("[x Parse %s] Req: %s", na.debugProtocol, hex.EncodeToString(mps.requests.getData()))
+		if mps.responses != nil {
+			na.telemetry.Logger.Infof("[x Parse %s] Resp: %s", na.debugProtocol, hex.EncodeToString(mps.responses.getData()))
+		}
+	}
 	if mps.responses == nil {
 		addProtocolPayload(protocol, labels, mps.requests.getData(), nil)
 	} else {
