@@ -39,6 +39,7 @@ type NetworkAnalyzer struct {
 	cfg           *Config
 	nextConsumers []consumer.Consumer
 	conntracker   conntracker.Conntracker
+	debugProtocol string
 
 	staticPortMap    map[uint32]string
 	slowThresholdMap map[string]int
@@ -69,6 +70,7 @@ func NewNetworkAnalyzer(cfg interface{}, telemetry *component.TelemetryTools, co
 		dataGroupPool: NewDataGroupPool(),
 		nextConsumers: consumers,
 		telemetry:     telemetry,
+		debugProtocol: os.Getenv("DEBUG_PROTOCOL"),
 
 		eventChan: make(chan *model.KindlingEvent, config.EventChannelSize),
 		stopChan:  make(chan bool),
@@ -220,6 +222,10 @@ func (na *NetworkAnalyzer) processEvent(evt *model.KindlingEvent) error {
 			return err
 		}
 
+		if len(na.debugProtocol) > 0 && protocol.DNS == na.debugProtocol {
+			na.telemetry.Logger.Infof("[Receive DNS] Comm: %s, Fd(%d)[%d -> %d], Size: %d, Req: %s", evt.GetComm(),
+				evt.GetFd(), evt.GetSport(), evt.GetDport(), evt.GetResVal(), hex.EncodeToString(evt.GetData()))
+		}
 		udpKey := getUdpKey(evt)
 		if isRequest {
 			// We have only seen DNS queries use "sendmmsg" to send requests until now.
@@ -251,9 +257,11 @@ func (na *NetworkAnalyzer) processEvent(evt *model.KindlingEvent) error {
 						records = append(records, na.getRecordWithSinglePair(mp, protocol.DNS, responseAttributes))
 						return na.distributeRecords(records)
 					}
+				} else {
+					na.telemetry.Logger.Warnf("[x Match Response] %s", hex.EncodeToString(evt.GetData()))
 				}
 			} else {
-				na.telemetry.Logger.Warnf("Fail to parse dns response: %s", hex.EncodeToString(evt.GetData()))
+				na.telemetry.Logger.Warnf("[x Parse Response] %s", hex.EncodeToString(evt.GetData()))
 			}
 			return nil
 		}
@@ -294,7 +302,7 @@ func (na *NetworkAnalyzer) consumeUdpDnsRequest(evt *model.KindlingEvent, key ud
 		udpDnsInterface, _ := na.dnsRequestMonitor.LoadOrStore(key, newDnsUdpCache())
 		udpDnsInterface.(*DnsUdpCache).addRequest(parsedRequest)
 	} else {
-		na.telemetry.Logger.Warnf("Fail to parse dns request: %s", hex.EncodeToString(evt.GetData()))
+		na.telemetry.Logger.Warnf("[x Parse Request] %s", hex.EncodeToString(evt.GetData()))
 	}
 }
 
