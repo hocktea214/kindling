@@ -222,12 +222,12 @@ func (na *NetworkAnalyzer) processEvent(evt *model.KindlingEvent) error {
 			return err
 		}
 
-		if len(na.debugProtocol) > 0 && protocol.DNS == na.debugProtocol {
-			na.telemetry.Logger.Infof("[Receive DNS] Comm: %s, Fd(%d)[%d -> %d], Size: %d, Req: %s", evt.GetComm(),
-				evt.GetFd(), evt.GetSport(), evt.GetDport(), evt.GetResVal(), hex.EncodeToString(evt.GetData()))
-		}
 		udpKey := getUdpKey(evt)
 		if isRequest {
+			if len(na.debugProtocol) > 0 && protocol.DNS == na.debugProtocol {
+				na.telemetry.Logger.Infof("[Receive DNS] Name: %s, Comm: %s, Fd(%d)[%d -> %d], Size: %d, Req: %s", evt.Name, evt.GetComm(),
+					evt.GetFd(), evt.GetSport(), evt.GetDport(), evt.GetResVal(), hex.EncodeToString(evt.GetData()))
+			}
 			// We have only seen DNS queries use "sendmmsg" to send requests until now.
 			// Here we consider different messages as different requests which is what we have figured.
 			if evt.Name == constnames.SendMMsgEvent {
@@ -240,6 +240,10 @@ func (na *NetworkAnalyzer) processEvent(evt *model.KindlingEvent) error {
 			}
 			return nil
 		} else {
+			if len(na.debugProtocol) > 0 && protocol.DNS == na.debugProtocol {
+				na.telemetry.Logger.Infof("[Receive DNS] Name: %s, Comm: %s, Fd(%d)[%d -> %d], Size: %d, Resp: %s", evt.Name, evt.GetComm(),
+					evt.GetFd(), evt.GetSport(), evt.GetDport(), evt.GetResVal(), hex.EncodeToString(evt.GetData()))
+			}
 			if responseAttributes, success := parseDnsUdpResponse(na.udpDnsParser, evt); success {
 				if udpDnsInterface, exist := na.dnsRequestMonitor.Load(udpKey); exist {
 					dnsUdpCache := udpDnsInterface.(*DnsUdpCache)
